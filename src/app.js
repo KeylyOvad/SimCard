@@ -14,6 +14,7 @@ const ubicacionRoutes = require('./routes/ubicacion.routes');
 const destinoRoutes = require('./routes/destino.routes');
 const responsableRoutes = require('./routes/responsable.routes');
 const estadoRoutes = require('./routes/estado.routes');
+const reporteRoutes = require('./routes/reporte.routes');
 const app = express();
 
 app.use(cors({
@@ -27,6 +28,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/usuarios', userRoutes);
 app.use('/api/sims', simRoutes);
+
 app.use('/api/operadores', operadorRoutes);
 app.get('/', (req, res) => {
   res.send('Aplicación backend levantada');
@@ -53,5 +55,7 @@ app.use('/api/ubicaciones', ubicacionRoutes);
 app.use('/api/destinos', destinoRoutes);
 app.use('/api/responsables', responsableRoutes);
 app.use('/api/estados', estadoRoutes);
+app.use('/api/reportes', reporteRoutes);
+
 
 module.exports = app;
