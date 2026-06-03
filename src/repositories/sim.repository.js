@@ -1,8 +1,5 @@
 const db = require('../config/db');
 
-/**
- * Obtiene todas las SIMs con sus descripciones
- */
 exports.getAll = async () => {
     const [rows] = await db.query(`
         SELECT 
@@ -32,12 +29,15 @@ exports.getById = async (id) => {
         [id]
     );
     const sim = rows[0];
+
     if (sim) {
         const [ips] = await db.query('SELECT ip FROM ip WHERE id_sim = ?', [id]);
         sim.ips = ips.map(row => row.ip);
+
         const [apns] = await db.query('SELECT apn FROM apn WHERE id_sim = ?', [id]);
         sim.apns = apns.map(row => row.apn);
     }
+
     return sim;
 };
 
@@ -49,14 +49,12 @@ exports.buscarPorSim = async (num_sim) => {
     return rows[0];
 };
 
-/**
- * CREAR: Registra el estado inicial
- */
 exports.crear = async (data) => {
     const {
         numeroSim, numeroLinea, operadorId, estadoId, planId,
         capacidadId, responsableId, destinoId, ubicacionId,
-        tipoSimId, pin, puk, observacion, ip, apn, id_user 
+        tipoSimId, pin, puk, observacion, ip, apn,
+        id_user 
     } = data;
 
     const finalPin = (pin && pin.toString().trim() !== '') ? pin : '0';
@@ -64,6 +62,7 @@ exports.crear = async (data) => {
     const finalObs = (observacion && observacion.trim() !== '') ? observacion : 'AGPE';
 
     const connection = await db.getConnection();
+
     try {
         await connection.beginTransaction();
 
@@ -86,7 +85,12 @@ exports.crear = async (data) => {
                 id_operador, id_estado, id_plan, id_capacidad, 
                 id_responsable, id_destino, id_ubicacion, ips, apns
             ) VALUES (?, 'REGISTRO INICIAL DEL ÍTEM', ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [simId, id_user || 1, numeroSim, numeroLinea, finalPin, finalPuk, tipoSimId, operadorId, estadoId, planId, capacidadId, responsableId, destinoId, ubicacionId, ipsTexto, apnsTexto]);
+        `, [
+            simId, id_user || 1,
+            numeroSim, numeroLinea, finalPin, finalPuk, tipoSimId, 
+            operadorId, estadoId, planId, capacidadId, 
+            responsableId, destinoId, ubicacionId, ipsTexto, apnsTexto
+        ]);
 
         if (ip && ip.length > 0) {
             for (const item of ip) await connection.query('INSERT INTO ip (id_sim, ip) VALUES (?, ?)', [simId, item]);
@@ -105,15 +109,15 @@ exports.crear = async (data) => {
     }
 };
 
-/**
- * ACTUALIZAR: Guarda lo NUEVO en el historial (Recomendado)
- */
 exports.actualizar = async (id, data) => {
     const connection = await db.getConnection();
+    
     try {
         await connection.beginTransaction();
+        const [rows] = await connection.query('SELECT * FROM sim WHERE id_sim = ?', [id]);
+        const vieja = rows[0];
 
-        // 1. ACTUALIZAR LA TABLA SIM (EL PRESENTE)
+        if (!vieja) throw new Error("SIM no encontrada");
         await connection.query(`
             UPDATE sim SET 
                 num_sim = ?, num_linea = ?, cod_pin = ?, cod_puk = ?, 
@@ -128,11 +132,9 @@ exports.actualizar = async (id, data) => {
             data.ubicacionId, id
         ]);
 
-        // 2. PREPARAR TEXTOS PARA EL HISTORIAL
         const ipsTexto = (Array.isArray(data.ip) && data.ip.length > 0) ? data.ip.join(', ') : 'SIN IP';
         const apnsTexto = (Array.isArray(data.apn) && data.apn.length > 0) ? data.apn.join(', ') : 'SIN APN';
 
-        // 3. GUARDAR EL CAMBIO EN EL HISTORIAL (LA FOTO DE CÓMO QUEDÓ)
         await connection.query(`
             INSERT INTO modificaciones (
                 id_sim, razon, id_user, created_at,
@@ -142,17 +144,17 @@ exports.actualizar = async (id, data) => {
             ) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             id, data.razonModificacion, data.id_user || 1,
-            data.numeroSim, data.numeroLinea, data.pin, data.puk, 
-            data.tipoSimId, data.operadorId, data.estadoId, data.planId, 
-            data.capacidadId, data.responsableId, data.destinoId, 
-            data.ubicacionId, ipsTexto, apnsTexto
+            vieja.num_sim, vieja.num_linea, vieja.cod_pin, vieja.cod_puk, vieja.id_tiposim,
+            vieja.id_operador, vieja.id_estado, vieja.id_plan, vieja.id_capacidad,
+            vieja.id_responsable, vieja.id_destino, vieja.id_ubicacion,
+            ipsTexto, apnsTexto
         ]);
 
-        // Sincronizar tablas auxiliares
         await connection.query('DELETE FROM ip WHERE id_sim = ?', [id]);
         if (Array.isArray(data.ip)) {
             for (const item of data.ip) await connection.query('INSERT INTO ip (id_sim, ip) VALUES (?, ?)', [id, item]);
         }
+
         await connection.query('DELETE FROM apn WHERE id_sim = ?', [id]);
         if (Array.isArray(data.apn)) {
             for (const item of data.apn) await connection.query('INSERT INTO apn (id_sim, apn) VALUES (?, ?)', [id, item]);
@@ -205,6 +207,7 @@ exports.getHistorial = async (id) => {
             WHERE m.id_sim = ?
             ORDER BY m.created_at DESC
         `, [id]);
+        
         return rows;
     } catch (error) {
         console.error("❌ Error en la consulta de historial:", error.message);

@@ -15,6 +15,7 @@ const destinoRoutes = require('./routes/destino.routes');
 const responsableRoutes = require('./routes/responsable.routes');
 const estadoRoutes = require('./routes/estado.routes');
 const reporteRoutes = require('./routes/reporte.routes');
+const cargaExcelRoutes = require('./routes/carga-excel.routes'); // Importación de la ruta masiva
 const app = express();
 
 app.use(cors({
@@ -28,6 +29,9 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/usuarios', userRoutes);
 app.use('/api/sims', simRoutes);
+
+// Configuración de la ruta unificada para Angular (Suma: /api/carga-excel + /procesar)
+app.use('/api/carga-excel', cargaExcelRoutes); 
 
 app.use('/api/operadores', operadorRoutes);
 app.get('/', (req, res) => {

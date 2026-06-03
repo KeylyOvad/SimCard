@@ -7,7 +7,6 @@ exports.descargarExcel = async (req, res) => {
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('SIMCARDS CENS');
 
-        // 1. DEFINICIÓN DE COLUMNAS (Empezamos en Fila 1)
         worksheet.columns = [
             { header: 'N° LINEA', key: 'num_linea' },
             { header: 'N° SIM', key: 'num_sim' },
@@ -26,13 +25,10 @@ exports.descargarExcel = async (req, res) => {
             { header: 'OBSERVACION', key: 'observacion' }
         ];
 
-        // 2. CARGA DE DATOS
         datos.forEach((item) => {
             const row = worksheet.addRow({
-                // N° Línea como número para quitar el triángulo verde
                 num_linea: isNaN(item.num_linea) ? item.num_linea : Number(item.num_linea),
                 
-                // MAGIA PARA EL N° SIM: Lo forzamos como String para evitar el error 1.16E+16
                 num_sim: item.num_sim ? item.num_sim.toString() : '',
                 
                 operador: item.operador,
@@ -50,10 +46,8 @@ exports.descargarExcel = async (req, res) => {
                 observacion: item.observacion
             });
 
-            // Aplicamos formato de texto a la celda del N° SIM (Columna 2) para asegurar que no se transforme
             row.getCell(2).numFmt = '@';
 
-            // Estilos de las celdas de datos
             row.eachCell((cell, colNumber) => {
                 cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true, indent: 1 };
                 cell.border = {
@@ -61,7 +55,6 @@ exports.descargarExcel = async (req, res) => {
                     right: { style: 'thin', color: { argb: 'F2F2F2' } }
                 };
 
-                // Color dinámico para la columna de ESTADO (Columna 6)
                 if (colNumber === 6) {
                     const est = cell.value?.toString().trim().toLowerCase();
                     if (est === 'activa') {
@@ -75,7 +68,7 @@ exports.descargarExcel = async (req, res) => {
             });
         });
 
-        // 3. ESTILO DE CABECERA (Verde Lima)
+        
         const headerRow = worksheet.getRow(1);
         headerRow.height = 30;
         headerRow.eachCell((cell) => {
@@ -85,22 +78,19 @@ exports.descargarExcel = async (req, res) => {
             cell.border = { bottom: { style: 'medium' }, right: { style: 'thin' } };
         });
 
-        // 4. ACTIVAR FILTROS (Flechitas en cada columna)
+        
         worksheet.autoFilter = { from: 'A1', to: 'O1' };
 
-        // 5. AJUSTE DINÁMICO DE COLUMNAS
         worksheet.columns.forEach((column) => {
             let maxLen = 0;
             column.eachCell({ includeEmpty: true }, (cell) => {
                 const cellLen = cell.value ? cell.value.toString().length : 0;
                 if (cellLen > maxLen) maxLen = cellLen;
             });
-            // Espacio extra para que el botón del filtro no tape el texto
             column.width = maxLen < 12 ? 16 : (maxLen > 50 ? 50 : maxLen + 6);
         });
 
-        // 6. VISTA Y ENVÍO
-        worksheet.views = [{ state: 'frozen', ySplit: 1 }]; // Congelar cabecera
+        worksheet.views = [{ state: 'frozen', ySplit: 1 }]; 
         worksheet.showGridLines = false;
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

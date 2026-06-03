@@ -27,14 +27,12 @@ const getSimById = async (req, res) => {
 
 const createSim = async (req, res) => {
     try {
-        // Lógica para capturar el usuario real
         const authHeader = req.headers.authorization;
         const token = authHeader && authHeader.split(' ')[1];
         let id_usuario_activo = req.body.id_user || 1; 
 
         if (token) {
             const decoded = jwt.decode(token);
-            // Probamos con id_usuario o id según como esté en tu BD
             id_usuario_activo = decoded.id_usuario || decoded.id || id_usuario_activo;
         }
         
@@ -52,16 +50,13 @@ const createSim = async (req, res) => {
 
 const updateSim = async (req, res) => {
     try {
-        // CAPTURA DEL USUARIO DESDE EL TOKEN
         const authHeader = req.headers.authorization;
         const token = authHeader && authHeader.split(' ')[1];
         
-        // Si no hay token, usamos el del body, y si no, el usuario 1 por defecto
         let id_usuario_activo = req.body.id_user || 1;
 
         if (token) {
             const decoded = jwt.decode(token);
-            // Extraemos el ID real del usuario logueado
             id_usuario_activo = decoded.id_usuario || decoded.id || id_usuario_activo;
         }
 

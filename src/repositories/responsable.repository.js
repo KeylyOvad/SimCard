@@ -33,37 +33,17 @@ const deleteResponsable = async (id) => {
   );
  return result.affectedRows > 0;
 };
-
-
-
-
-
-
 const hardDeleteResponsable = async (id) => {
-
   const [result] = await db.query(
-
-    `DELETE FROM responsables WHERE id_responsable = ?`,
-
-    [id]
-
-  );
-
-  return result.affectedRows > 0;
-
+  `DELETE FROM responsables WHERE id_responsable = ?`,
+  [id]
+ );
+ return result.affectedRows > 0;
 };
-
-
 module.exports = {
-
   getAllResponsables,
-
   createResponsable,
-
   updateResponsable,
-
   deleteResponsable,
-
   hardDeleteResponsable
-
 };
