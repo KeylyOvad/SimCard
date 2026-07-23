@@ -2,14 +2,10 @@ const express = require('express');
 const router = express.Router();
 
 const authController = require('../controllers/auth.controller');
-const authMiddleware = require('../middlewares/auth.middleware');
-
-console.log("TYPE login:", typeof authController.login);
-console.log("TYPE getUserInfo:", typeof authController.getUserInfo);
-console.log("TYPE middleware:", typeof authMiddleware);
+const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
 
 router.post('/login', authController.login);
 
-router.get('/me', authMiddleware, authController.getUserInfo);
+router.get('/me', verificarToken, authController.getUserInfo);
 
 module.exports = router;

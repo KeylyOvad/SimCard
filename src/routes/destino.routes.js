@@ -2,9 +2,12 @@ const express = require('express');
 const router = express.Router();
 const destinoController = require('../controllers/destino.controller');
 
-router.get('/', destinoController.getDestinos);
-router.post('/', destinoController.createDestino);
-router.put('/:id', destinoController.updateDestino);
-router.delete('/:id', destinoController.deleteDestino);
+const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
+
+router.get('/', verificarToken, destinoController.getDestinos);
+
+router.post('/', verificarToken, esAdmin, destinoController.createDestino);
+router.put('/:id', verificarToken, esAdmin, destinoController.updateDestino);
+router.delete('/:id', verificarToken, esAdmin, destinoController.deleteDestino);
 
 module.exports = router;

@@ -2,18 +2,25 @@ const userRepository = require('../repositories/user.repository');
 const { comparePassword } = require('../utils/password.util');
 const { generateToken } = require('../utils/jwt.util');
 
-  const login = async (correo, password) => {
+// Gestiona el proceso de autenticacion validando credenciales y generando un token de acceso
+const login = async (correo, password) => {
+  // Busca si existe un usuario registrado con el correo 
   const user = await userRepository.findByCorreo(correo);
   if (!user) throw new Error('INVALID_CREDENTIALS');
+  
+  // Compara la contrasena ingresada con el hash almacenado en la base de datos
   const isValid = await comparePassword(password, user.password);
   if (!isValid) throw new Error('INVALID_CREDENTIALS');
    
-    return generateToken({
+  // Genera el token JWT empaquetando la informacion basica del perfil autenticado
+  const token = generateToken({
     id: user.id_usuario,
     nombre: user.nombres,
-    correo: user.correo
- });
+    correo: user.correo,
+    id_rol: user.id_rol 
+  });
 
+  return { token, id_rol: user.id_rol };
 };
 
-module.exports = { login }
+module.exports = { login };

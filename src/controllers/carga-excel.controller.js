@@ -1,106 +1,317 @@
-const cargaExcelRepository = require('../repositories/carga-excel.repository');
-const db = require('../config/db'); // Importamos la base de datos para resolver los IDs reales
-const xlsx = require('xlsx');
-const fs = require('fs');
+const XLSX = require('xlsx');
+const SimRepository = require('../repositories/sim.repository');
+const db = require('../config/db');
 
-class CargaExcelController {
 
-    async procesarArchivoSims(req, res) {
-        try {
-            if (!req.file) {
-                return res.status(400).json({ message: 'Error de transmisión: No se recibió ningún archivo Excel.' });
-            }
+// Trae los id validos del la tabla del excel para usarlos como validador
+async function cargarIdsValidos(tabla, columnaId) {
+    const [rows] = await db.query(`SELECT ${columnaId} AS id FROM ${tabla}`);
+    return new Set(rows.map(r => Number(r.id)));
+}
 
-            const workbook = xlsx.readFile(req.file.path);
-            const primeraHoja = workbook.SheetNames[0]; 
-            const datosHoja = workbook.Sheets[primeraHoja];
-            const filasJSON = xlsx.utils.sheet_to_json(datosHoja, { raw: false });
-
-            if (filasJSON.length === 0) {
-                fs.unlinkSync(req.file.path); 
-                return res.status(400).json({ message: 'El archivo Excel seleccionado no contiene filas de datos.' });
-            }
-
-            // Solicitamos una conexión a la base de datos para hacer las traducciones de texto a ID
-            const connection = await db.getConnection();
-            
-            // Función auxiliar interna para buscar el ID de un texto en cualquier tabla parametrizada
-            const obtenerIdDesdeTexto = async (tabla, columnaNombre, valorTexto) => {
-                if (!valorTexto) return 1; // Si la celda del Excel está vacía, asigna el ID 1 por defecto
-                try {
-                    const [rows] = await connection.execute(
-                        `SELECT id FROM ${tabla} WHERE UPPER(${columnaNombre}) LIKE ? LIMIT 1`,
-                        [`%${valorTexto.trim().toUpperCase()}%`]
-                    );
-                    return rows.length > 0 ? rows[0].id : 1; // Si no encuentra coincidencia exacta, usa el ID 1
-                } catch (err) {
-                    return 1; // Resguardo para evitar que el bucle se rompa por un fallo de consulta
-                }
-            };
-
-            const datosNormalizados = [];
-
-            // Procesamos cada fila del Excel convirtiendo sus textos en IDs de Base de Datos
-            for (let i = 0; i < filasJSON.length; i++) {
-                const fila = filasJSON[i];
-
-                // Extraemos los valores del Excel mapeando las columnas tal cual las tienes escritas
-                const numLinea = fila['Nº Línea'];
-                const txtOperador = fila['Operador'];
-                const numSim = fila['Serial Sim Card'];
-                const txtPlan = fila['Plan'];
-                const txtCapacidad = fila['Capacidad'];
-                const txtResponsable = fila['Responsable'];
-                const txtDestino = fila['Destino'];
-                const txtEstado = fila['Estado'];
-                
-                // Si la fila no contiene el número de línea o el serial de la SIM, la saltamos de forma segura
-                if (!numLinea || !numSim) continue;
-
-                // 🔄 TRADUCCIÓN TÉCNICA: Buscamos qué ID numérico representa cada texto del Excel
-                const idOperador = await obtenerIdDesdeTexto('operadores', 'nombre', txtOperador);
-                const idPlan = await obtenerIdDesdeTexto('planes', 'nombre', txtPlan);
-                const idCapacidad = await obtenerIdDesdeTexto('capacidades', 'nombre', txtCapacidad); // Revisa si tu tabla se llama 'capacidades' o 'capacidad'
-                const idResponsable = await obtenerIdDesdeTexto('responsables', 'nombre', txtResponsable);
-                const idDestino = await obtenerIdDesdeTexto('ubicaciones', 'nombre', txtDestino); // Traduce destinos contra tu tabla de ubicaciones
-                const idEstado = await obtenerIdDesdeTexto('estados', 'nombre', txtEstado);
-
-                // Armamos el objeto estructurado con puros IDs numéricos listos para MySQL
-                datosNormalizados.push({
-                    num_linea: numLinea.toString().trim(),
-                    operador: idOperador,       
-                    num_sim: numSim.toString().trim().replace(/[\s\.-]/g, ''), // Limpieza de espacios en el serial
-                    plan: idPlan,               
-                    capacidad: idCapacidad,     
-                    responsable: idResponsable, 
-                    destino: idDestino,         
-                    estado: idEstado            
-                });
-            }
-
-            connection.release(); // Liberamos la conexión de búsqueda de forma limpia
-
-            // Enviamos los datos perfectamente traducidos a IDs hacia el repositorio SQL
-            const totalInsertados = await cargaExcelRepository.insertarSimsMasivo(datosNormalizados);
-
-            fs.unlinkSync(req.file.path);
-
-            return res.status(200).json({
-                message: `Carga masiva completada exitosamente en el sistema CENS.`,
-                registrosProcesados: totalInsertados
-            });
-
-        } catch (error) {
-            if (req.file && fs.existsSync(req.file.path)) {
-                fs.unlinkSync(req.file.path);
-            }
-            console.error('Error en CargaExcelController:', error);
-            return res.status(500).json({ 
-                message: 'Fallo crítico al resolver las equivalencias del Excel con los IDs de la base de datos.',
-                error: error.message 
-            });
-        }
+// Trae todas las ip registradas para evitar duplicados
+async function cargarIpsExistentes() {
+    try {
+        const [rows] = await db.query(`SELECT ip FROM ip`); 
+        return new Set(rows.map(r => String(r.ip).trim()));
+    } catch (e) {
+        console.warn('⚠️ Error al cargar historico de IPs:', e.message);
+        return new Set();
     }
 }
 
-module.exports = new CargaExcelController();
+const importarExcel = async (req, res) => {
+    try {
+        // Valida que el archivo exista
+        if (!req.file) {
+            return res.status(400).json({ message: 'No se envio archivo' });
+        }
+
+  const usuarioIdReal = req.user.id;
+
+    if (!usuarioIdReal) {
+    return res.status(401).json({
+        message: 'Usuario no autenticado'
+      });
+      }
+        // Lee el archivo Excel y lo convierte a formato JSON
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(sheet, { defval: null });
+
+        if (!data.length) {
+            return res.status(400).json({ message: 'El archivo esta vacio' });
+        }
+
+        // Controla que el archivo no sea gigante
+        const MAX_FILAS = 5000;
+        if (data.length > MAX_FILAS) {
+            return res.status(400).json({ message: `El archivo supera el limite de ${MAX_FILAS} filas` });
+        }
+
+        // Carga todos los catalogos en memoria en paralelo (Mejora velocidad)
+        let idsOperador, idsEstado, idsPlan, idsCapacidad, idsResponsable, idsDestino, idsUbicacion, idsTipoSim, ipsRegistradasEnBD;
+        try {
+            [
+                idsOperador,
+                idsEstado,
+                idsPlan,
+                idsCapacidad,
+                idsResponsable,
+                idsDestino,
+                idsUbicacion,
+                idsTipoSim,
+                ipsRegistradasEnBD
+            ] = await Promise.all([
+                cargarIdsValidos('operadores',   'id_operador'),
+                cargarIdsValidos('estados',      'id_estado'),
+                cargarIdsValidos('planes',       'id_plan'),
+                cargarIdsValidos('capacidades',  'id_capacidad'),
+                cargarIdsValidos('responsables', 'id_responsable'),
+                cargarIdsValidos('destinos',     'id_destino'),
+                cargarIdsValidos('ubicaciones',  'id_ubicacion'),
+                cargarIdsValidos('tiposim',      'id_tiposim'),
+                cargarIpsExistentes()
+            ]);
+        } catch (catErr) {
+            console.error('❌ Error cargando catalogos:', catErr.message);
+            return res.status(500).json({ message: 'Error interno al inicializar validadores' });
+        }
+
+        const filasValidas = [];
+        const errores      = [];
+        const simsEnExcel  = new Set(); 
+        const ipsEnExcel   = new Set(); 
+
+        // Ciclo para validar cada fila del archivo Excel
+        data.forEach((row, index) => {
+            const fila = index + 2; 
+
+            const numSim   = row.NUM_SIM   != null ? String(row.NUM_SIM).trim()   : null;
+            const numLinea = row.NUM_LINEA != null ? String(row.NUM_LINEA).trim() : null;
+
+            // 🛠️ BLINDAJE: Ignorar filas vacías o celdas fantasma inicializadas por Excel (como tu fila #7)
+            const estaVacia = Object.values(row).every(valor => valor === null || valor === undefined || String(valor).trim() === '');
+            if (estaVacia || (!numSim && !numLinea)) {
+                return; // Salta la fila silenciosamente sin generar errores
+            }
+
+            const problemas = [];
+
+            // Valida campos de texto obligatorios
+            if (!numSim || numSim === '')   problemas.push('El campo NUM_SIM esta vacio o ausente.');
+            if (!numLinea || numLinea === '') problemas.push('El campo NUM_LINEA esta vacio o ausente.');
+
+            // Validaciones de claves foraneas contra los catalogos en memoria
+            if (row.ID_OPERADOR == null || String(row.ID_OPERADOR).trim() === '') {
+                problemas.push('El campo ID_OPERADOR es obligatorio.');
+            } else {
+                const operador = Number(row.ID_OPERADOR);
+                if (isNaN(operador)) problemas.push(`ID_OPERADOR debe ser un numero ("${row.ID_OPERADOR}")`);
+                else if (!idsOperador.has(operador)) problemas.push(`El ID de Operador (${operador}) no existe`);
+            }
+
+            if (row.ID_ESTADO == null || String(row.ID_ESTADO).trim() === '') {
+                problemas.push('El campo ID_ESTADO es obligatorio.');
+            } else {
+                const estado = Number(row.ID_ESTADO);
+                if (isNaN(estado)) problemas.push(`ID_ESTADO debe ser un numero ("${row.ID_ESTADO}")`);
+                else if (!idsEstado.has(estado)) problemas.push(`El ID de Estado (${estado}) no existe`);
+            }
+
+            if (row.ID_PLAN == null || String(row.ID_PLAN).trim() === '') {
+                problemas.push('El campo ID_PLAN es obligatorio.');
+            } else {
+                const plan = Number(row.ID_PLAN);
+                if (isNaN(plan)) problemas.push(`ID_PLAN debe ser un numero ("${row.ID_PLAN}")`);
+                else if (!idsPlan.has(plan)) problemas.push(`El ID de Plan (${plan}) no existe`);
+            }
+
+            if (row.ID_CAPACIDAD == null || String(row.ID_CAPACIDAD).trim() === '') {
+                problemas.push('El campo ID_CAPACIDAD es obligatorio.');
+            } else {
+                const capacidad = Number(row.ID_CAPACIDAD);
+                if (isNaN(capacidad)) problemas.push(`ID_CAPACIDAD debe ser un numero ("${row.ID_CAPACIDAD}")`);
+                else if (!idsCapacidad.has(capacidad)) problemas.push(`El ID de Capacidad (${capacidad}) no existe`);
+            }
+
+            if (row.ID_RESPONSABLE == null || String(row.ID_RESPONSABLE).trim() === '') {
+                problemas.push('El campo ID_RESPONSABLE es obligatorio.');
+            } else {
+                const responsable = Number(row.ID_RESPONSABLE);
+                if (isNaN(responsable)) problemas.push(`ID_RESPONSABLE debe ser un numero ("${row.ID_RESPONSABLE}")`);
+                else if (!idsResponsable.has(responsable)) problemas.push(`El ID de Responsable (${responsable}) no existe`);
+            }
+
+            if (row.ID_DESTINO == null || String(row.ID_DESTINO).trim() === '') {
+                problemas.push('El campo ID_DESTINO es obligatorio.');
+            } else {
+                const destino = Number(row.ID_DESTINO);
+                if (isNaN(destino)) problemas.push(`ID_DESTINO debe ser un numero ("${row.ID_DESTINO}")`);
+                else if (!idsDestino.has(destino)) problemas.push(`El ID de Destino (${destino}) no existe`);
+            }
+
+            if (row.ID_UBICACION == null || String(row.ID_UBICACION).trim() === '') {
+                problemas.push('El campo ID_UBICACION es obligatorio.');
+            } else {
+                const ubicacion = Number(row.ID_UBICACION);
+                if (isNaN(ubicacion)) problemas.push(`ID_UBICACION debe ser un numero ("${row.ID_UBICACION}")`);
+                else if (!idsUbicacion.has(ubicacion)) problemas.push(`El ID de Ubicacion (${ubicacion}) no existe`);
+            }
+
+            if (row.ID_TIPOSIM == null || String(row.ID_TIPOSIM).trim() === '') {
+                problemas.push('El campo ID_TIPOSIM es obligatorio.');
+            } else {
+                const tipoSim = Number(row.ID_TIPOSIM);
+                if (isNaN(tipoSim)) problemas.push(`ID_TIPOSIM debe ser un numero ("${row.ID_TIPOSIM}")`);
+                else if (!idsTipoSim.has(tipoSim)) problemas.push(`El ID de Tipo SIM (${tipoSim}) no existe`);
+            }
+
+            // Obtiene PIN y PUK como strings limpios
+            const pinStr = row.COD_PIN != null ? String(row.COD_PIN).trim() : '';
+            const pukStr = row.COD_PUK != null ? String(row.COD_PUK).trim() : '';
+
+            // Valida longitudes especificas solo si el usuario digito algo real que no sea vacio o "0"
+            if (pinStr !== '' && pinStr !== '0' && pinStr.length !== 4) {
+                problemas.push(`El PIN debe tener exactamente 4 digitos.`);
+            }
+
+            if (pukStr !== '' && pukStr !== '0' && pukStr.length !== 8) {
+                problemas.push(`El PUK debe tener exactamente 8 digitos.`);
+            }
+
+            // Procesa columna de IPs
+            const celdaIp = row.IP != null ? String(row.IP).replace(/\s+/g, '') : '';
+            const ipsFila = celdaIp ? celdaIp.split(',').filter(s => s.length > 0) : [];
+
+            ipsFila.forEach(ip => {
+                if (ipsRegistradasEnBD.has(ip)) {
+                    problemas.push(`La IP "${ip}" ya esta asignada en la Base de Datos.`);
+                }
+                if (ipsEnExcel.has(ip)) {
+                    problemas.push(`La IP "${ip}" esta duplicada en este Excel.`);
+                }
+            });
+
+            const celdaApn = row.ID_APN != null ? row.ID_APN : (row.APN != null ? row.APN : null);
+
+            // Valida sim repetidas dentro del Excel
+            if (numSim && simsEnExcel.has(numSim)) {
+                problemas.push(`El numero de SIM ${numSim} esta repetido en el archivo`);
+            }
+
+            // Si hay errores guarda el reporte y pasa a la siguiente fila
+            if (problemas.length > 0) {
+                errores.push({ fila, numSim: numSim || '—', problemas });
+                return;
+            }
+
+            // Registra en los Set temporales para controlar duplicados del archivo
+            simsEnExcel.add(numSim);
+            ipsFila.forEach(ip => ipsEnExcel.add(ip));
+
+            // Valores por defecto corregidos para procesamiento masivo
+            const pinFinal = (pinStr === '' || pinStr === '0') ? '0000' : pinStr;
+            const pukFinal = (pukStr === '' || pukStr === '0') ? '00000000' : pukStr;
+            
+            const observacionFinal = (row.OBSERVACION != null && String(row.OBSERVACION).trim() !== '') 
+                ? String(row.OBSERVACION).trim() 
+                : '';
+
+            // Estructura el objeto final para guardar
+            filasValidas.push({
+                fila,
+                sim: {
+                    numeroSim:     numSim,
+                    numeroLinea:   numLinea,
+                    operadorId:    Number(row.ID_OPERADOR),
+                    estadoId:      Number(row.ID_ESTADO),
+                    planId:        Number(row.ID_PLAN),
+                    capacidadId:   Number(row.ID_CAPACIDAD), 
+                    responsableId: Number(row.ID_RESPONSABLE),
+                    destinoId:     Number(row.ID_DESTINO),
+                    ubicacionId:   Number(row.ID_UBICACION),
+                    tipoSimId:     Number(row.ID_TIPOSIM),
+                    pin:           pinFinal,
+                    puk:           pukFinal,
+                    observacion:   observacionFinal,
+                    ip:            ipsFila,
+                    apn:           celdaApn ? String(celdaApn).split(',').map(s => s.trim()).filter(s => s.length > 0) : [],
+                    id_user:       usuarioIdReal,
+                }
+            });
+        });
+
+        // Verifica qué sims de las validas ya existan guardadas en la BD
+        let existentesEnBD = [];
+        if (filasValidas.length > 0) {
+            try {
+                existentesEnBD = await SimRepository.buscarSimsMasivo(
+                    filasValidas.map(f => f.sim.numeroSim)
+                );
+            } catch (dbErr) {
+                console.error('❌ Error consultando duplicados en BD:', dbErr.message);
+                return res.status(500).json({ message: 'Error de base de datos al validar duplicados' });
+            }
+        }
+        
+        const setExistentes = new Set(existentesEnBD.map(s => String(s.num_sim)));
+
+        // Separa las sims nuevas de las que ya existen en la plataforma
+        const paraInsertar = [];
+        for (const item of filasValidas) {
+            if (setExistentes.has(item.sim.numeroSim)) {
+                errores.push({
+                    fila: item.fila,
+                    numSim: item.sim.numeroSim,
+                    problemas: [`La tarjeta SIM Nro. ${item.sim.numeroSim} ya existe en el sistema`]
+                });
+            } else {
+                paraInsertar.push(item);
+            }
+        }
+
+        // Guarda en la BD dividiendo en lotes de 100 registros
+        let guardadas = 0;
+        const LOTE = 100;
+
+        for (let i = 0; i < paraInsertar.length; i += LOTE) {
+            const lote = paraInsertar.slice(i, i + LOTE);
+            
+            await Promise.all(
+                lote.map(async ({ fila, sim }) => {
+                    try {
+                        await SimRepository.crear(sim);
+                        guardadas++;
+                    } catch (err) {
+                        console.error(`❌ Error al insertar fila ${fila}:`, err.message);
+                        errores.push({
+                            fila,
+                            numSim: sim.numeroSim,
+                            problemas: [`Error al guardar en BD: ${err.message}`]
+                        });
+                    }
+                })
+            );
+        }
+
+        // Ordena la lista de errores por el número de fila
+        errores.sort((a, b) => a.fila - b.fila);
+
+        // Retorna el resultado final limpio sin celdas que no tengan nada 
+        return res.json({
+            total:     paraInsertar.length + errores.length, 
+            guardadas,
+            omitidas: errores.length,
+            errores,  
+        });
+
+    } catch (error) {
+        console.error('❌ Error inesperado en importarExcel:', error);
+        return res.status(500).json({ message: 'Error critico interno del servidor al procesar el Excel' });
+    }
+};
+
+module.exports = {
+    importarExcel
+};

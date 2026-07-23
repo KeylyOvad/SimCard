@@ -2,10 +2,12 @@ const express = require('express');
 const router = express.Router();
 const capacidadController = require('../controllers/capacidad.controller');
 
-router.get('/', capacidadController.getCapacidades);
-router.post('/', capacidadController.createCapacidad);
-router.put('/:id', capacidadController.updateCapacidad);
-router.delete('/:id', capacidadController.deleteCapacidad);
+const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
+
+router.get('/', verificarToken, capacidadController.getCapacidades);
+
+router.post('/', verificarToken, esAdmin, capacidadController.createCapacidad);
+router.put('/:id', verificarToken, esAdmin, capacidadController.updateCapacidad);
+router.delete('/:id', verificarToken, esAdmin, capacidadController.deleteCapacidad);
 
 module.exports = router;
-

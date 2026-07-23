@@ -3,12 +3,12 @@ const router = express.Router();
 
 const planesController = require('../controllers/planes.controller');
 
+const { verificarToken, esAdmin } = require('../middlewares/auth.middleware');
 
-router.get('/', planesController.getPlanes);        
-router.post('/', planesController.createPlan);      
-router.put('/:id', planesController.updatePlan);   
-router.delete('/:id', planesController.deletePlan);
+router.get('/', verificarToken, planesController.getPlanes);        
+
+router.post('/', verificarToken, esAdmin, planesController.createPlan);      
+router.put('/:id', verificarToken, esAdmin, planesController.updatePlan);   
+router.delete('/:id', verificarToken, esAdmin, planesController.deletePlan);
 
 module.exports = router;
-
-
