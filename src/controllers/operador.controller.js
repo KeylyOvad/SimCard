@@ -4,10 +4,12 @@ const operadorRepository = require('../repositories/operador.repository');
 const getOperadores = async (req, res) => {
   try {
     const operadores = await operadorRepository.getAllOperadores();
-    res.json(operadores);
+    
+    return res.status(200).json(operadores);
   } catch (error) {
     console.error('Error al obtener operadores:', error);
-    res.status(500).json({ error: error.message });
+   
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
@@ -16,22 +18,29 @@ const createOperador = async (req, res) => {
   try {
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+    
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del operador es obligatoria'
+        message: 'La descripción del operador es obligatoria y debe ser texto'
       });
     }
 
     const descripcionNormalizada = descripcion.trim();
 
-    // Valida si ya existe un operador con esa misma descripción
-    const existente = await operadorRepository.findByDescripcion(
-      descripcionNormalizada
-    );
+    
+    if (descripcionNormalizada.length > 255) {
+      return res.status(400).json({
+        message: 'La descripción no puede superar los 255 caracteres'
+      });
+    }
+
+    // Valida si ya existe
+    const existente = await operadorRepository.findByDescripcion(descripcionNormalizada);
 
     if (existente) {
-      return res.status(400).json({
-        message: `El operador [${descripcionNormalizada}] ya se encuentra registrado.`
+      
+      return res.status(409).json({
+        message: 'El operador ingresado ya se encuentra registrado.'
       });
     }
 
@@ -39,46 +48,46 @@ const createOperador = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.status(201).json(nuevo);
+    // 201 Created: CreaciOn exitosa
+    return res.status(201).json(nuevo);
 
   } catch (error) {
     console.error('Error al crear operador:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Actualiza un operador existente usando su id
+// Actualiza un operador existente usando su ID
 const updateOperador = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+    
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del operador es obligatoria'
+        message: 'La descripción del operador es obligatoria y debe ser texto'
       });
     }
 
     const descripcionNormalizada = descripcion.trim();
 
-    // Valida si el nombre ya pertenece a otro operador diferente al que estamos editando
-    const existente = await operadorRepository.findByDescripcion(
-      descripcionNormalizada
-    );
-
-    if (
-      existente &&
-      String(existente.id_operador) !== String(id)
-    ) {
+    if (descripcionNormalizada.length > 255) {
       return res.status(400).json({
-        message: `No se puede actualizar. El operador [${descripcionNormalizada}] ya existe.`
+        message: 'La descripción no puede superar los 255 caracteres'
+      });
+    }
+
+    const existente = await operadorRepository.findByDescripcion(descripcionNormalizada);
+
+    if (existente && String(existente.id_operador) !== String(id)) {
+      return res.status(409).json({
+        message: 'No se puede actualizar. El operador ingresado ya pertenece a otro registro.'
       });
     }
 
@@ -86,40 +95,40 @@ const updateOperador = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.json(actualizado);
+    if (!actualizado) {
+      return res.status(404).json({ message: 'Operador no encontrado' });
+    }
+
+    
+    return res.status(200).json(actualizado);
 
   } catch (error) {
     console.error('Error al actualizar operador:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Elimina un operador usando su id
+// Elimina un operador usando su ID
 const deleteOperador = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const eliminado = await operadorRepository.deleteOperador(id);
 
     if (!eliminado) {
-      return res.status(404).json({
-        message: 'Operador no encontrado'
-      });
+      return res.status(404).json({ message: 'Operador no encontrado' });
     }
 
-    res.json({
-      message: 'Operador eliminado correctamente'
-    });
+  
+    return res.status(200).json({ message: 'Operador eliminado correctamente' });
 
   } catch (error) {
     console.error('Error al eliminar operador:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 

@@ -4,9 +4,12 @@ const destinoRepository = require('../repositories/destino.repository');
 const getDestinos = async (req, res) => {
   try {
     const destinos = await destinoRepository.getAllDestinos();
-    res.json(destinos);
+    
+    return res.status(200).json(destinos);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error en getDestinos:', error);
+    
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
@@ -15,22 +18,28 @@ const createDestino = async (req, res) => {
   try {
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+  
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del destino es obligatoria'
+        message: 'La descripción del destino es obligatoria y debe ser texto'
       });
     }
 
     const descripcionNormalizada = descripcion.trim();
 
-    // Valida si ya existe un destino con esa misma descripción
-    const existente = await destinoRepository.findByDescripcion(
-      descripcionNormalizada
-    );
+    if (descripcionNormalizada.length > 255) {
+      return res.status(400).json({
+        message: 'La descripción no puede superar los 255 caracteres'
+      });
+    }
+
+    // Valida si ya existe un destino idéntico
+    const existente = await destinoRepository.findByDescripcion(descripcionNormalizada);
 
     if (existente) {
-      return res.status(400).json({
-        message: `El destino [${descripcionNormalizada}] ya se encuentra registrado.`
+      // 409 Conflict (A01: Prevención XSS al no reflejar el input ingresado)
+      return res.status(409).json({
+        message: 'El destino ingresado ya se encuentra registrado.'
       });
     }
 
@@ -38,44 +47,46 @@ const createDestino = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.status(201).json(nuevo);
+    // 201 Created
+    return res.status(201).json(nuevo);
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error en createDestino:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Actualiza un destino existente usando su id
+// Actualiza un destino existente usando su ID
 const updateDestino = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+    // Validación estricta de entero positivo
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del destino es obligatoria'
+        message: 'La descripción del destino es obligatoria y debe ser texto'
       });
     }
 
     const descripcionNormalizada = descripcion.trim();
 
-    const existente = await destinoRepository.findByDescripcion(
-      descripcionNormalizada
-    );
-
-    if (
-      existente &&
-      String(existente.id_destino) !== String(id)
-    ) {
+    if (descripcionNormalizada.length > 255) {
       return res.status(400).json({
-        message: `No se puede actualizar. El destino [${descripcionNormalizada}] ya existe.`
+        message: 'La descripción no puede superar los 255 caracteres'
+      });
+    }
+
+    const existente = await destinoRepository.findByDescripcion(descripcionNormalizada);
+
+    if (existente && String(existente.id_destino) !== String(id)) {
+      return res.status(409).json({
+        message: 'No se puede actualizar. El destino ingresado ya pertenece a otro registro.'
       });
     }
 
@@ -83,10 +94,16 @@ const updateDestino = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.json(actualizado);
+    if (!actualizado) {
+      return res.status(404).json({ message: 'Destino no encontrado' });
+    }
+
+    // 200 OK
+    return res.status(200).json(actualizado);
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error en updateDestino:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
@@ -95,26 +112,22 @@ const deleteDestino = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const eliminado = await destinoRepository.deleteDestino(id);
 
     if (!eliminado) {
-      return res.status(404).json({
-        message: 'Destino no encontrado'
-      });
+      return res.status(404).json({ message: 'Destino no encontrado' });
     }
 
-    res.json({
-      message: 'Destino eliminado correctamente'
-    });
+
+    return res.status(200).json({ message: 'Destino eliminado correctamente' });
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error en deleteDestino:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 

@@ -1,6 +1,6 @@
 const authService = require('../services/auth.service');
 
-// Hace el inicio de sesión del usuario
+// Hace el inicio de sesiOn del usuario
 const login = async (req, res) => {
   const { correo, password } = req.body;
 
@@ -38,14 +38,13 @@ const login = async (req, res) => {
 
   } catch (error) {
 
-    // Si los datos están mal, avisa al usuario
+    // Si los datos están mal avisa al usuario
     if (error.message === 'INVALID_CREDENTIALS') {
       return res.status(401).json({
         message: 'Credenciales incorrectas'
       });
     }
 
-    // Si es otro error lo guarda en consola y manda error 500
     console.error('Error en controlador login:', error.message);
 
     res.status(500).json({
@@ -54,9 +53,9 @@ const login = async (req, res) => {
   }
 };
 
-// Devuelve los datos del usuario que ya inició sesión
+// Devuelve los datos del usuario que ya inici0 sesión
 const getUserInfo = (req, res) => {
-  // req.user viene del middleware que valida el token
+
   res.json({
     nombre: req.user.nombre,
     id_rol: req.user.id_rol

@@ -1,23 +1,23 @@
 const db = require('../config/db');
 
-// Busca un estado por su descripcion ignorando mayusculas y minusculas
+// Busca un estado ignorando mayusculas y minusculas
 const findByDescripcion = async (descripcion) => {
   const [rows] = await db.query(
-    'SELECT id_estado, descripcion FROM estados WHERE LOWER(descripcion) = LOWER(?) AND deleted_at IS NULL',
+    'SELECT id_estado, descripcion FROM estados WHERE LOWER(descripcion) = LOWER(?) AND deleted_at IS NULL LIMIT 1',
     [descripcion]
   );
   return rows[0];
 };
 
-// Obtiene todos los estados que no han sido eliminados logicamente
+// Obtiene todos los estados activos 
 const getAllEstados = async () => {
   const [rows] = await db.query(
-    'SELECT * FROM estados WHERE deleted_at IS NULL'
+    'SELECT id_estado, descripcion, created_at, updated_at FROM estados WHERE deleted_at IS NULL'
   );
   return rows;
 };
 
-// Inserta un nuevo estado en la base de datos
+// Inserta un nuevo estado
 const createEstado = async (estado) => {
   const { descripcion } = estado;
   const [result] = await db.query(
@@ -28,26 +28,32 @@ const createEstado = async (estado) => {
   return { id_estado: result.insertId, descripcion };
 };
 
-// Actualiza la descripcion de un estado existente
+// Actualiza la descripcion
 const updateEstado = async (id, estado) => {
   const { descripcion } = estado;
-  await db.query(
-    `UPDATE estados SET descripcion = ?, updated_at = NOW() WHERE id_estado = ?`,
+  const [result] = await db.query(
+    `UPDATE estados 
+     SET descripcion = ?, updated_at = NOW() 
+     WHERE id_estado = ? AND deleted_at IS NULL`,
     [descripcion, id]
   );
+
+  if (result.affectedRows === 0) return null;
   return { id_estado: id, descripcion };
 };
 
-// Elimina un estado usando su ID
+// Borrado logico
 const deleteEstado = async (id) => {
   const [result] = await db.query(
-    `DELETE FROM estados WHERE id_estado = ?`,
+    `UPDATE estados 
+     SET deleted_at = NOW() 
+     WHERE id_estado = ? AND deleted_at IS NULL`,
     [id]
   );
   return result.affectedRows > 0;
 };
 
-// Realiza una eliminacion fisica del estado en la base de datos
+// Borrado fisico  solo para procesos internos
 const hardDeleteEstado = async (id) => {
   const [result] = await db.query(
     `DELETE FROM estados WHERE id_estado = ?`,
@@ -55,6 +61,7 @@ const hardDeleteEstado = async (id) => {
   );
   return result.affectedRows > 0;
 };
+
 
 module.exports = {
   findByDescripcion,

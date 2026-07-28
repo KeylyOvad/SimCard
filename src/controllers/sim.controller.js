@@ -1,199 +1,296 @@
 const simService = require('../services/sim.service');
-const simRepository = require('../repositories/sim.repository'); 
+const simRepository = require('../repositories/sim.repository');
 
+/**
+ * Normaliza y limpia campos de texto simples.
+ * Mantener el texto en formato plano evita corrupción de caracteres en BD/exportaciones (OWASP A03/A04).
+ */
+const limpiarTexto = (texto) => {
+    if (texto === null || texto === undefined) return null;
+    return String(texto).trim();
+};
 
-// Trae todas las sims registradas
+/**
+ * Valida y extrae únicamente un arreglo de cadenas primitivas (Evita Injection de Objetos / Type Confusion).
+ */
+const extraerArregloStrings = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    return Array.from(
+        new Set(
+            arr
+                .filter(item => typeof item === 'string' || typeof item === 'number')
+                .map(item => String(item).trim())
+                .filter(Boolean)
+        )
+    );
+};
+
+// Trae todas las SIMs registradas
 const getSims = async (req, res) => {
     try {
         const sims = await simService.getSims();
         res.json(sims);
     } catch (error) {
-        console.error('Error al obtener SIMs:', error);
-        res.status(500).json({ error: error.message });
+        console.error('Error al obtener SIMs:', error.message);
+        res.status(500).json({ message: 'Ocurrió un error interno al consultar las tarjetas SIM.' });
     }
 };
 
-// Busca una sim especifica usando su id
+// Busca una SIM específica por ID
 const getSimById = async (req, res) => {
     try {
         const { id } = req.params;
-        const sim = await simService.getSimById(id);
+        const simId = Number(id);
+        
+        if (!Number.isInteger(simId) || simId <= 0) {
+            return res.status(400).json({ message: 'El ID provisto no es válido.' });
+        }
+
+        const sim = await simService.getSimById(simId);
         if (!sim) {
             return res.status(404).json({ message: 'SIM no encontrada' });
         }
         res.json(sim);
     } catch (error) {
-        console.error('Error al obtener la SIM:', error);
-        res.status(500).json({ error: error.message });
+        console.error('Error al obtener la SIM:', error.message);
+        res.status(500).json({ message: 'Ocurrió un error interno al consultar el detalle de la SIM.' });
     }
 };
 
-// Crea una nueva sim con validaciones completas
+// Crea una nueva SIM con validaciones completas
 const createSim = async (req, res) => {
     try {
-        // Lee el token para saber que usuario esta haciendo el registro
-     const id_usuario_activo = req.user.id;
+        const id_usuario_activo = req.user?.id;
+        if (!id_usuario_activo) {
+            return res.status(401).json({ message: 'Usuario no autenticado' });
+        }
 
-        const { 
-            numeroSim, numeroLinea, tipoSimId, operadorId, 
-            planId, capacidadId, estadoId, responsableId, 
-            ubicacionId, destinoId 
+        const {
+            numeroSim, numeroLinea, tipoSimId, operadorId,
+            planId, capacidadId, estadoId, responsableId,
+            ubicacionId, destinoId, pin, puk
         } = req.body;
 
-        // Valida que todos los campos obligatorios del formulario tengan datos
+        // Validar campos requeridos
         if (
             !numeroSim || !String(numeroSim).trim() ||
             !numeroLinea || !String(numeroLinea).trim() ||
-            tipoSimId === "" || !tipoSimId ||
-            operadorId === "" || !operadorId ||
-            planId === "" || !planId ||
-            capacidadId === "" || !capacidadId ||
-            estadoId === "" || !estadoId ||
-            responsableId === "" || !responsableId ||
-            ubicacionId === "" || !ubicacionId ||
-            destinoId === "" || !destinoId
+            tipoSimId === "" || tipoSimId === undefined || tipoSimId === null ||
+            operadorId === "" || operadorId === undefined || operadorId === null ||
+            planId === "" || planId === undefined || planId === null ||
+            capacidadId === "" || capacidadId === undefined || capacidadId === null ||
+            estadoId === "" || estadoId === undefined || estadoId === null ||
+            responsableId === "" || responsableId === undefined || responsableId === null ||
+            ubicacionId === "" || ubicacionId === undefined || ubicacionId === null ||
+            destinoId === "" || destinoId === undefined || destinoId === null
         ) {
-            return res.status(400).json({ 
-                message: 'Error de validacion: Todos los parametros estructurales del formulario son estrictamente obligatorios.' 
+            return res.status(400).json({
+                message: 'Error de validación: Todos los parámetros estructurales del formulario son estrictamente obligatorios.'
             });
         }
-        
-        // Limpia espacios en blanco y remueve duplicados de los arreglos de ip y apn
-        const ipsLimpias = req.body.ip && Array.isArray(req.body.ip) 
-            ? Array.from(new Set(req.body.ip.map(i => String(i).trim()))).filter(i => i !== '') 
-            : [];
-            
-        const apnsLimpios = req.body.apn && Array.isArray(req.body.apn) 
-            ? req.body.apn.map(a => String(a).trim()).filter(a => a !== '') 
-            : [];
 
-        // Verifica que las ip ingresadas no pertenezcan ya a otra sim activa ya que debe ser una ip unica para cada sim
-        for (const ip of ipsLimpias) {
-            const duplicada = await simRepository.validarIpDuplicadaCrear(ip);
-            if (duplicada) {
-                return res.status(400).json({ 
-                    message: `La direccion IP ${ip} ya esta registrada en la linea N° ${duplicada.num_linea}.` 
+        const simLimpio = String(numeroSim).trim();
+        const lineaLimpia = String(numeroLinea).trim();
+
+        // Verificar duplicados de SIM o Línea en BD
+        const simExistente = await simRepository.validarSimOLineaDuplicadaCrear(simLimpio, lineaLimpia);
+
+        if (simExistente) {
+            if (simExistente.num_sim === simLimpio) {
+                return res.status(400).json({
+                    message: `El número de SIM '${simLimpio}' ya se encuentra registrado en el sistema.`
+                });
+            }
+            if (simExistente.num_linea === lineaLimpia) {
+                return res.status(400).json({
+                    message: `El número de línea '${lineaLimpia}' ya se encuentra registrado en el sistema.`
                 });
             }
         }
 
-        const observacionLimpia = req.body.observacion && String(req.body.observacion).trim() !== '' 
-            ? String(req.body.observacion).trim() 
-            : null;
+        // Procesamiento e higienización estricta de tipos para IPs y APNs
+        const ipsLimpias = extraerArregloStrings(req.body.ip);
+        const apnsLimpios = extraerArregloStrings(req.body.apn);
 
-        // Guarda el registro enviando los datos procesados y limpios
-        const nuevo = await simService.createSim({
-            ...req.body,
+        // Validar duplicado de IPs antes de crear
+        for (const ip of ipsLimpias) {
+            const duplicada = await simRepository.validarIpDuplicadaCrear(ip);
+            if (duplicada) {
+                return res.status(400).json({
+                    message: `La dirección IP ${ip} ya está registrada en la línea N° ${duplicada.num_linea}.`
+                });
+            }
+        }
+
+        const observacionLimpia = limpiarTexto(req.body.observacion);
+
+        const payloadDTO = {
+            numeroSim: simLimpio,
+            numeroLinea: lineaLimpia,
+            tipoSimId: Number(tipoSimId),
+            operadorId: Number(operadorId),
+            planId: Number(planId),
+            capacidadId: Number(capacidadId),
+            estadoId: Number(estadoId),
+            responsableId: Number(responsableId),
+            ubicacionId: Number(ubicacionId),
+            destinoId: Number(destinoId),
+            pin: pin ? String(pin).trim() : '0000',
+            puk: puk ? String(puk).trim() : '00000000',
             observacion: observacionLimpia,
             ip: ipsLimpias,
             apn: apnsLimpios,
             id_user: id_usuario_activo
-        });
-        
+        };
+
+        const nuevo = await simService.createSim(payloadDTO);
         res.status(201).json(nuevo);
+
     } catch (error) {
-        console.error('Error al crear SIM:', error);
-        res.status(500).json({ error: error.message });
+        console.error('Error al crear SIM:', error.message);
+        res.status(500).json({ message: 'Error interno del servidor al procesar la creación de la tarjeta SIM.' });
     }
 };
 
-// Actualiza los datos de una sim y exige una razon de cambio
+// Actualiza los datos de una SIM y exige una razón de cambio
 const updateSim = async (req, res) => {
     try {
-        // Lee el token para saber que usuario realiza la modificacion
-        const id_usuario_activo = req.user.id;
+        const id_usuario_activo = req.user?.id;
+        if (!id_usuario_activo) {
+            return res.status(401).json({ message: 'Usuario no autenticado' });
+        }
 
-        const { 
-            numeroSim, numeroLinea, tipoSimId, operadorId, 
-            planId, capacidadId, estadoId, responsableId, 
-            ubicacionId, destinoId, razonModificacion 
+        const simId = Number(req.params.id);
+        if (!Number.isInteger(simId) || simId <= 0) {
+            return res.status(400).json({ message: 'El ID provisto no es válido.' });
+        }
+
+        const {
+            numeroSim, numeroLinea, tipoSimId, operadorId,
+            planId, capacidadId, estadoId, responsableId,
+            ubicacionId, destinoId, razonModificacion, pin, puk
         } = req.body;
 
-        // Valida campos obligatorios  que son los parametros y que la razon de cambio tenga un tamaño minimo
         if (
             !numeroSim || !String(numeroSim).trim() ||
             !numeroLinea || !String(numeroLinea).trim() ||
-            tipoSimId === "" || !tipoSimId ||
-            operadorId === "" || !operadorId ||
-            planId === "" || !planId ||
-            capacidadId === "" || !capacidadId ||
-            estadoId === "" || !estadoId ||
-            responsableId === "" || !responsableId ||
-            ubicacionId === "" || !ubicacionId ||
-            destinoId === "" || !destinoId ||
+            tipoSimId === "" || tipoSimId === undefined || tipoSimId === null ||
+            operadorId === "" || operadorId === undefined || operadorId === null ||
+            planId === "" || planId === undefined || planId === null ||
+            capacidadId === "" || capacidadId === undefined || capacidadId === null ||
+            estadoId === "" || estadoId === undefined || estadoId === null ||
+            responsableId === "" || responsableId === undefined || responsableId === null ||
+            ubicacionId === "" || ubicacionId === undefined || ubicacionId === null ||
+            destinoId === "" || destinoId === undefined || destinoId === null ||
             !razonModificacion || String(razonModificacion).trim().length < 5
         ) {
-            return res.status(400).json({ 
-                message: 'Error de validacion: No se permiten campos o parametros obligatorios vacios para actualizar.' 
+            return res.status(400).json({
+                message: 'Error de validación: No se permiten campos vacíos o razón de modificación inferior a 5 caracteres.'
             });
         }
 
-        const ipsLimpias = req.body.ip && Array.isArray(req.body.ip) 
-            ? Array.from(new Set(req.body.ip.map(i => String(i).trim()))).filter(i => i !== '') 
-            : [];
-            
-        const apnsLimpios = req.body.apn && Array.isArray(req.body.apn) 
-            ? req.body.apn.map(a => String(a).trim()).filter(a => a !== '') 
-            : [];
+        const simLimpio = String(numeroSim).trim();
+        const lineaLimpia = String(numeroLinea).trim();
 
-        // Valida duplicado de ip excluyendo a la misma sim que se esta editando
-        for (const ip of ipsLimpias) {
-            const duplicada = await simRepository.validarIpDuplicadaActualizar(ip, req.params.id);
-            if (duplicada) {
-                return res.status(400).json({ 
-                    message: `La direccion IP ${ip} ya esta asignada a otra linea activa (Linea N° ${duplicada.num_linea}).` 
+        // Validar duplicado de Número SIM o Línea en otras tarjetas al actualizar
+        const simExistente = await simRepository.validarSimOLineaDuplicadaActualizar(simLimpio, lineaLimpia, simId);
+
+        if (simExistente) {
+            if (simExistente.num_sim === simLimpio) {
+                return res.status(400).json({
+                    message: `El número de SIM '${simLimpio}' ya pertenece a otra tarjeta activa.`
+                });
+            }
+            if (simExistente.num_linea === lineaLimpia) {
+                return res.status(400).json({
+                    message: `El número de línea '${lineaLimpia}' ya pertenece a otra tarjeta activa.`
                 });
             }
         }
 
-        const observacionLimpia = req.body.observacion && String(req.body.observacion).trim() !== '' 
-            ? String(req.body.observacion).trim() 
-            : null;
+        // Limpieza y validación de tipos para IPs y APNs
+        const ipsLimpias = extraerArregloStrings(req.body.ip);
+        const apnsLimpios = extraerArregloStrings(req.body.apn);
 
-        // Ejecuta la actualizacion de la tarjeta sim
-        const actualizado = await simService.updateSim(req.params.id, {
-            ...req.body,
+        // Validar duplicado de IPs en otras tarjetas antes de actualizar
+        for (const ip of ipsLimpias) {
+            const duplicada = await simRepository.validarIpDuplicadaActualizar(ip, simId);
+            if (duplicada) {
+                return res.status(400).json({
+                    message: `La dirección IP ${ip} ya está asignada a otra línea activa (Línea N° ${duplicada.num_linea}).`
+                });
+            }
+        }
+
+        const observacionLimpia = limpiarTexto(req.body.observacion);
+        const razonLimpia = limpiarTexto(razonModificacion);
+
+        const payloadDTO = {
+            numeroSim: simLimpio,
+            numeroLinea: lineaLimpia,
+            tipoSimId: Number(tipoSimId),
+            operadorId: Number(operadorId),
+            planId: Number(planId),
+            capacidadId: Number(capacidadId),
+            estadoId: Number(estadoId),
+            responsableId: Number(responsableId),
+            ubicacionId: Number(ubicacionId),
+            destinoId: Number(destinoId),
+            pin: pin ? String(pin).trim() : '0000',
+            puk: puk ? String(puk).trim() : '00000000',
             observacion: observacionLimpia,
+            razonModificacion: razonLimpia,
             ip: ipsLimpias,
             apn: apnsLimpios,
-            id_user: id_usuario_activo 
-        });
+            id_user: id_usuario_activo
+        };
 
+        const actualizado = await simService.updateSim(simId, payloadDTO);
         res.json(actualizado);
+
     } catch (error) {
-        console.error('Error al actualizar SIM:', error);
-        res.status(500).json({ error: error.message });
+        console.error('Error al actualizar SIM:', error.message);
+        res.status(500).json({ message: 'Error interno del servidor al actualizar la tarjeta SIM.' });
     }
 };
 
-// Elimina una sim por completo del sistema usando su id 
+// Elimina una SIM (borrado lógico) por ID
 const deleteSim = async (req, res) => {
     try {
-        const eliminada = await simService.deleteSim(req.params.id);
-        if (!eliminada) {
-            return res.status(404).json({
-                message: 'SIM no encontrada'
-            });
+        const { id } = req.params;
+        const simId = Number(id);
+
+        if (!Number.isInteger(simId) || simId <= 0) {
+            return res.status(400).json({ message: 'El ID provisto no es válido.' });
         }
-        res.json({
-            message: 'SIM eliminada correctamente'
-        });
+
+        const eliminada = await simService.deleteSim(simId);
+        if (!eliminada) {
+            return res.status(404).json({ message: 'SIM no encontrada' });
+        }
+        res.json({ message: 'SIM eliminada correctamente' });
+
     } catch (error) {
-        console.error('Error al eliminar SIM:', error);
-        res.status(500).json({
-            error: error.message
-        });
+        console.error('Error al eliminar SIM:', error.message);
+        res.status(500).json({ message: 'Error interno del servidor al intentar eliminar la SIM.' });
     }
 };
 
-// Obtiene el regristro de cambios de una sinm especifica
+// Obtiene el historial de modificaciones
 const getHistorial = async (req, res) => {
     try {
-        const historial = await simService.getHistorial(req.params.id);
+        const { id } = req.params;
+        const simId = Number(id);
+
+        if (!Number.isInteger(simId) || simId <= 0) {
+            return res.status(400).json({ message: 'El ID provisto no es válido.' });
+        }
+
+        const historial = await simService.getHistorial(simId);
         res.json(historial);
     } catch (error) {
-        console.error('Error al obtener historial:', error);
-        res.status(500).json({ error: 'Error al obtener historial' });
+        console.error('Error al obtener historial:', error.message);
+        res.status(500).json({ message: 'Ocurrió un error interno al consultar el historial.' });
     }
 };
 

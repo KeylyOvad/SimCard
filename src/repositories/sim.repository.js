@@ -1,12 +1,12 @@
 const db = require('../config/db');
 
-// Valida si el argumento es un arreglo y contiene elementos
+// Valida si el argumento es un arreglo válido con elementos
 const isValidArray = (arr) => Array.isArray(arr) && arr.length > 0;
 
-// Obtiene todas las tarjetas sim activas con sus respectivas relaciones y datos agrupados
+// Obtiene todas las tarjetas SIM activas
 exports.getAll = async () => {
     const [rows] = await db.query(`
-        SELECT 
+        SELECT
             s.id_sim, s.num_linea, s.num_sim, s.cod_pin, s.cod_puk,
             ts.descripcion AS tipo_sim,
             o.descripcion AS operador,
@@ -36,33 +36,34 @@ exports.getAll = async () => {
     return rows;
 };
 
-// Obtiene una tarjeta sim por su id e integra sus listados de ip y apn correspondientes
+// Obtiene una tarjeta SIM por ID
 exports.getById = async (id) => {
+    const simId = Number(id);
     const [rows] = await db.query(
         'SELECT * FROM sim WHERE id_sim = ? AND deleted_at IS NULL',
-        [id]
+        [simId]
     );
     const sim = rows[0];
     if (!sim) return null;
 
-    const [ips] = await db.query('SELECT ip FROM ip WHERE id_sim = ?', [id]);
-    const [apns] = await db.query('SELECT apn FROM apn WHERE id_sim = ?', [id]);
+    const [ips] = await db.query('SELECT ip FROM ip WHERE id_sim = ?', [simId]);
+    const [apns] = await db.query('SELECT apn FROM apn WHERE id_sim = ?', [simId]);
 
     sim.ips = ips.map(i => i.ip);
     sim.apns = apns.map(a => a.apn);
     return sim;
 };
 
-// Busca un registro de tarjeta sim activo utilizando el numero de sim
+// Busca un registro de tarjeta SIM activo por número de SIM
 exports.buscarPorSim = async (num_sim) => {
     const [rows] = await db.query(
         'SELECT * FROM sim WHERE num_sim = ? AND deleted_at IS NULL',
-        [num_sim]
+        [String(num_sim).trim()]
     );
     return rows[0] || null;
 };
 
-// Registra una nueva tarjeta sim, valida duplicidad de ip y guarda el historial en una transaccion
+// Registra una nueva tarjeta SIM
 exports.crear = async (data) => {
     let {
         numeroSim,
@@ -82,27 +83,29 @@ exports.crear = async (data) => {
         id_user
     } = data;
 
-    // Mapeo de auxilio en caso de que las llaves vengan con formato de base de datos desde la carga masiva
-    if (!tipoSimId && data.id_tiposim) tipoSimId = data.id_tiposim;
-    if (!operadorId && data.id_operador) operadorId = data.id_operador;
-    if (!planId && data.id_plan) planId = data.id_plan;
-    if (!capacidadId && data.id_capacidad) capacidadId = data.id_capacidad;
-    if (!estadoId && data.id_estado) estadoId = data.id_estado;
-    if (!responsableId && data.id_responsable) responsableId = data.id_responsable;
-    if (!ubicacionId && data.id_ubicacion) ubicacionId = data.id_ubicacion;
-    if (!destinoId && data.id_destino) destinoId = data.id_destino;
+    if (!id_user) {
+        throw new Error("El ID de usuario es obligatorio para registrar la auditoría.");
+    }
 
-    // Protegemos observacion para que nunca viaje como null absoluto si la BD no lo permite
+    tipoSimId = tipoSimId || data.id_tiposim;
+    operadorId = operadorId || data.id_operador;
+    planId = planId || data.id_plan;
+    capacidadId = capacidadId || data.id_capacidad;
+    estadoId = estadoId || data.id_estado;
+    responsableId = responsableId || data.id_responsable;
+    ubicacionId = ubicacionId || data.id_ubicacion;
+    destinoId = destinoId || data.id_destino;
+
     observacion = (observacion !== null && observacion !== undefined) ? String(observacion).trim() : '';
 
     const entradaApn = data.apn || data.ID_APN || data.nombreApn || [];
 
-    const ipsUnicas = isValidArray(ip) 
-        ? Array.from(new Set(ip.map(i => String(i).trim()))).filter(i => i !== '') 
+    const ipsUnicas = isValidArray(ip)
+        ? Array.from(new Set(ip.map(i => String(i).trim()))).filter(Boolean)
         : [];
     
-    const apnsProcesados = isValidArray(entradaApn) 
-        ? entradaApn.map(a => String(a).trim()).filter(a => a !== '') 
+    const apnsProcesados = isValidArray(entradaApn)
+        ? Array.from(new Set(entradaApn.map(a => String(a).trim()))).filter(Boolean)
         : (entradaApn && String(entradaApn).trim() !== '' ? [String(entradaApn).trim()] : []);
 
     const connection = await db.getConnection();
@@ -110,12 +113,12 @@ exports.crear = async (data) => {
     try {
         await connection.beginTransaction();
 
-        // Verifica que ninguna IP a registrar este asignada a otra tarjeta SIM activa
+        // Bloqueo de lectura (FOR UPDATE) para prevenir race conditions
         for (const itemIp of ipsUnicas) {
             const [existeIp] = await connection.query(`
-                SELECT i.ip FROM ip i 
-                INNER JOIN sim s ON i.id_sim = s.id_sim 
-                WHERE i.ip = ? AND s.deleted_at IS NULL LIMIT 1
+                SELECT i.ip FROM ip i
+                INNER JOIN sim s ON i.id_sim = s.id_sim
+                WHERE TRIM(i.ip) = TRIM(?) AND s.deleted_at IS NULL LIMIT 1 FOR UPDATE
             `, [itemIp]);
             
             if (existeIp.length > 0) {
@@ -123,7 +126,7 @@ exports.crear = async (data) => {
             }
         }
 
-        // Inserta los datos principales de la tarjeta SIM
+        // Inserta datos principales
         const [result] = await connection.query(`
             INSERT INTO sim (
                 num_sim, num_linea, cod_pin, cod_puk, id_tiposim,
@@ -132,27 +135,27 @@ exports.crear = async (data) => {
                 observacion, id_user, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         `, [
-            String(numeroSim || data.NUM_SIM),
-            String(numeroLinea || data.NUM_LINEA),
-            pin != null && String(pin).trim() !== '' ? String(pin) : '0',
-            puk != null && String(puk).trim() !== '' ? String(puk) : '0',
-            tipoSimId,
-            operadorId,
-            estadoId,
-            planId,
-            capacidadId,
-            responsableId,
-            destinoId,
-            ubicacionId,
-            observacion, 
-            id_user || 1
+            String(numeroSim || data.NUM_SIM).trim(),
+            String(numeroLinea || data.NUM_LINEA).trim(),
+            pin != null && String(pin).trim() !== '' ? String(pin).trim() : '0000',
+            puk != null && String(puk).trim() !== '' ? String(puk).trim() : '00000000',
+            Number(tipoSimId),
+            Number(operadorId),
+            Number(estadoId),
+            Number(planId),
+            Number(capacidadId),
+            Number(responsableId),
+            Number(destinoId),
+            Number(ubicacionId),
+            observacion,
+            Number(id_user)
         ]);
 
         const simId = result.insertId;
         const ipsTexto = ipsUnicas.length > 0 ? ipsUnicas.join(', ') : 'SIN IP';
         const apnsTexto = apnsProcesados.length > 0 ? apnsProcesados.join(', ') : 'SIN APN';
 
-        // Registra el estado inicial de la tarjeta en la tabla de modificaciones
+        // Registra en modificaciones
         await connection.query(`
             INSERT INTO modificaciones (
                 id_sim, razon, id_user, created_at,
@@ -165,25 +168,25 @@ exports.crear = async (data) => {
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             simId,
-            id_user || 1,
-            String(numeroSim || data.NUM_SIM),
-            String(numeroLinea || data.NUM_LINEA),
-            pin != null && String(pin).trim() !== '' ? String(pin) : '0',
-            puk != null && String(puk).trim() !== '' ? String(puk) : '0',
-            tipoSimId,
-            operadorId,
-            estadoId,
-            planId,
-            capacidadId,
-            responsableId,
-            destinoId,
-            ubicacionId,
+            Number(id_user),
+            String(numeroSim || data.NUM_SIM).trim(),
+            String(numeroLinea || data.NUM_LINEA).trim(),
+            pin != null && String(pin).trim() !== '' ? String(pin).trim() : '0000',
+            puk != null && String(puk).trim() !== '' ? String(puk).trim() : '00000000',
+            Number(tipoSimId),
+            Number(operadorId),
+            Number(estadoId),
+            Number(planId),
+            Number(capacidadId),
+            Number(responsableId),
+            Number(destinoId),
+            Number(ubicacionId),
             ipsTexto,
             apnsTexto,
             observacion
         ]);
 
-        // Inserta las ip asociadas a la tarjeta sim
+        // Inserción de IPs
         for (const item of ipsUnicas) {
             await connection.query(
                 'INSERT INTO ip (id_sim, ip) VALUES (?, ?)',
@@ -191,7 +194,7 @@ exports.crear = async (data) => {
             );
         }
 
-        // Inserta los apn asociados a la tarjeta sim
+        // Inserción de APNs
         for (const item of apnsProcesados) {
             await connection.query(
                 'INSERT INTO apn (id_sim, apn) VALUES (?, ?)',
@@ -210,7 +213,7 @@ exports.crear = async (data) => {
     }
 };
 
-// Actualiza una tarjeta sim existente, reescribe ip y apn y guarda el motivo del cambio
+// Actualiza una tarjeta SIM existente
 exports.actualizar = async (id, data) => {
     let {
         numeroSim,
@@ -230,16 +233,20 @@ exports.actualizar = async (id, data) => {
         id_user
     } = data;
 
-    // Protegemos observacion para evitar nulos en actualizaciones masivas o individuales
+    if (!id_user) {
+        throw new Error("El ID de usuario es obligatorio para registrar la auditoría.");
+    }
+
+    const simIdNum = Number(id);
     observacion = (observacion !== null && observacion !== undefined) ? String(observacion).trim() : '';
 
-    const ipsUnicas = isValidArray(data.ip) 
-        ? Array.from(new Set(data.ip.map(i => String(i).trim()))).filter(i => i !== '') 
+    const ipsUnicas = isValidArray(data.ip)
+        ? Array.from(new Set(data.ip.map(i => String(i).trim()))).filter(Boolean)
         : [];
         
     const entradaApn = data.apn || data.ID_APN || data.nombreApn || [];
-    const apnsProcesados = isValidArray(entradaApn) 
-        ? entradaApn.map(a => String(a).trim()).filter(a => a !== '') 
+    const apnsProcesados = isValidArray(entradaApn)
+        ? Array.from(new Set(entradaApn.map(a => String(a).trim()))).filter(Boolean)
         : (entradaApn && String(entradaApn).trim() !== '' ? [String(entradaApn).trim()] : []);
 
     const connection = await db.getConnection();
@@ -247,56 +254,55 @@ exports.actualizar = async (id, data) => {
     try {
         await connection.beginTransaction();
 
-        // Valida la existentente de la tarjeta sim a actualizar
         const [rows] = await connection.query(
-            'SELECT * FROM sim WHERE id_sim = ?',
-            [id]
+            'SELECT * FROM sim WHERE id_sim = ? FOR UPDATE',
+            [simIdNum]
         );
         const vieja = rows[0];
         if (!vieja) throw new Error("SIM no encontrada");
 
-        // Verifica duplicados de ip excluyendo el id de la tarjeta sim actual
+        // Bloqueo y verificación de IPs
         for (const itemIp of ipsUnicas) {
             const [existeIp] = await connection.query(`
-                SELECT i.ip FROM ip i 
-                INNER JOIN sim s ON i.id_sim = s.id_sim 
-                WHERE i.ip = ? AND i.id_sim != ? AND s.deleted_at IS NULL LIMIT 1
-            `, [itemIp, id]);
+                SELECT i.ip FROM ip i
+                INNER JOIN sim s ON i.id_sim = s.id_sim
+                WHERE TRIM(i.ip) = TRIM(?) AND i.id_sim != ? AND s.deleted_at IS NULL LIMIT 1 FOR UPDATE
+            `, [itemIp, simIdNum]);
             
             if (existeIp.length > 0) {
                 throw new Error(`La IP ${itemIp} ya está asignada a otra tarjeta activa.`);
             }
         }
 
-        // Aplica los cambios sobre el registro principal de la tarjeta sim
+        // Actualiza el registro principal
         await connection.query(`
-            UPDATE sim SET 
-                num_sim = ?, num_linea = ?, cod_pin = ?, cod_puk = ?, 
-                id_tiposim = ?, id_operador = ?, id_estado = ?, id_plan = ?, 
-                id_capacidad = ?, id_responsable = ?, id_destino = ?, 
+            UPDATE sim SET
+                num_sim = ?, num_linea = ?, cod_pin = ?, cod_puk = ?,
+                id_tiposim = ?, id_operador = ?, id_estado = ?, id_plan = ?,
+                id_capacidad = ?, id_responsable = ?, id_destino = ?,
                 id_ubicacion = ?, observacion = ?, updated_at = NOW()
             WHERE id_sim = ?
         `, [
-            String(numeroSim),
-            String(numeroLinea),
-            pin != null && String(pin).trim() !== '' ? String(pin) : '0',
-            puk != null && String(puk).trim() !== '' ? String(puk) : '0',
-            tipoSimId,
-            operadorId,
-            estadoId,
-            planId,
-            capacidadId,
-            responsableId,
-            destinoId,
-            ubicacionId,
+            String(numeroSim).trim(),
+            String(numeroLinea).trim(),
+            pin != null && String(pin).trim() !== '' ? String(pin).trim() : '0000',
+            puk != null && String(puk).trim() !== '' ? String(puk).trim() : '00000000',
+            Number(tipoSimId),
+            Number(operadorId),
+            Number(estadoId),
+            Number(planId),
+            Number(capacidadId),
+            Number(responsableId),
+            Number(destinoId),
+            Number(ubicacionId),
             observacion,
-            id
+            simIdNum
         ]);
 
         const ipsTexto = ipsUnicas.length > 0 ? ipsUnicas.join(', ') : 'SIN IP';
         const apnsTexto = apnsProcesados.length > 0 ? apnsProcesados.join(', ') : 'SIN APN';
 
-        // Guarda el registro de modificacion detallando los nuevos valores establecidos junto con la observacion técnica
+        // Registra modificación
         await connection.query(`
             INSERT INTO modificaciones (
                 id_sim, razon, id_user, created_at,
@@ -308,48 +314,40 @@ exports.actualizar = async (id, data) => {
             ) VALUES (?, ?, ?, NOW(),
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-            id,
-            razonModificacion,
-            id_user || 1,
-            String(numeroSim),
-            String(numeroLinea),
-            pin != null && String(pin).trim() !== '' ? String(pin) : '0',
-            puk != null && String(puk).trim() !== '' ? String(puk) : '0',
-            tipoSimId,
-            operadorId,
-            estadoId,
-            planId,
-            capacidadId,
-            responsableId,
-            destinoId,
-            ubicacionId,
+            simIdNum,
+            String(razonModificacion).trim(),
+            Number(id_user),
+            String(numeroSim).trim(),
+            String(numeroLinea).trim(),
+            pin != null && String(pin).trim() !== '' ? String(pin).trim() : '0000',
+            puk != null && String(puk).trim() !== '' ? String(puk).trim() : '00000000',
+            Number(tipoSimId),
+            Number(operadorId),
+            Number(estadoId),
+            Number(planId),
+            Number(capacidadId),
+            Number(responsableId),
+            Number(destinoId),
+            Number(ubicacionId),
             ipsTexto,
             apnsTexto,
             observacion
         ]);
 
-        // Remueve las relaciones de ip y apn anteriores para reescribirlas
-        await connection.query('DELETE FROM ip WHERE id_sim = ?', [id]);
-        await connection.query('DELETE FROM apn WHERE id_sim = ?', [id]);
+        // Reescritura de relaciones
+        await connection.query('DELETE FROM ip WHERE id_sim = ?', [simIdNum]);
+        await connection.query('DELETE FROM apn WHERE id_sim = ?', [simIdNum]);
 
-        // Inserta un nuevo conjunto de ip asociadas
         for (const item of ipsUnicas) {
-            await connection.query(
-                'INSERT INTO ip (id_sim, ip) VALUES (?, ?)',
-                [id, item]
-            );
+            await connection.query('INSERT INTO ip (id_sim, ip) VALUES (?, ?)', [simIdNum, item]);
         }
 
-        // Inserta un nuevo conjunto de apn asociados
         for (const item of apnsProcesados) {
-            await connection.query(
-                'INSERT INTO apn (id_sim, apn) VALUES (?, ?)',
-                [id, item]
-            );
+            await connection.query('INSERT INTO apn (id_sim, apn) VALUES (?, ?)', [simIdNum, item]);
         }
 
         await connection.commit();
-        return { id, ...data, observacion, ip: ipsUnicas, apn: apnsProcesados };
+        return { id: simIdNum, ...data, observacion, ip: ipsUnicas, apn: apnsProcesados };
 
     } catch (error) {
         await connection.rollback();
@@ -359,93 +357,124 @@ exports.actualizar = async (id, data) => {
     }
 };
 
-// Realiza una eliminacion logica de la sim y actualiza su estado a Desactivada de forma automatica
+// Borrado lógico
 exports.eliminar = async (id) => {
     const [result] = await db.query(`
-        UPDATE sim 
+        UPDATE sim
         SET deleted_at = NOW(),
             id_estado = (
                 SELECT id_estado
                 FROM estados
-                WHERE descripcion LIKE '%Desactivada%'
+                WHERE TRIM(LOWER(descripcion)) = 'desactivada'
                 LIMIT 1
             )
         WHERE id_sim = ?
-    `, [id]);
+    `, [Number(id)]);
 
     return result.affectedRows > 0;
 };
 
-// Obtiene la bitacora de modificaciones e historial de cambios completo de una tarjeta sim incluyendo la observacion
+// Historial completo
 exports.getHistorial = async (id) => {
-    try {
-        const [rows] = await db.query(`
-            SELECT 
-                m.razon, m.ips, m.apns, m.created_at, m.observacion,
-                IFNULL(u.nombres, 'SISTEMA') AS nombres, 
-                IFNULL(u.apellidos, '(CARGA MASIVA)') AS apellidos, 
-                m.num_sim, m.num_linea, m.cod_pin AS pin, m.cod_puk AS puk,
-                ts.descripcion AS tipo_sim, 
-                o.descripcion AS operador,
-                p.descripcion AS plan, 
-                c.descripcion AS capacidad,
-                e.descripcion AS estado, 
-                r.descripcion AS responsable,
-                loc.descripcion AS ubicacion, 
-                d.descripcion AS destino
-            FROM modificaciones m
-            LEFT JOIN usuarios u ON m.id_user = u.id_usuario
-            LEFT JOIN tiposim ts ON m.id_tiposim = ts.id_tiposim
-            LEFT JOIN operadores o ON m.id_operador = o.id_operador
-            LEFT JOIN planes p ON m.id_plan = p.id_plan
-            LEFT JOIN capacidades c ON m.id_capacidad = c.id_capacidad
-            LEFT JOIN estados e ON m.id_estado = e.id_estado
-            LEFT JOIN responsables r ON m.id_responsable = r.id_responsable
-            LEFT JOIN ubicaciones loc ON m.id_ubicacion = loc.id_ubicacion
-            LEFT JOIN destinos d ON m.id_destino = d.id_destino
-            WHERE m.id_sim = ?
-            ORDER BY m.created_at DESC
-        `, [id]);
+    const [rows] = await db.query(`
+        SELECT
+            m.razon, m.ips, m.apns, m.created_at, m.observacion,
+            IFNULL(u.nombres, 'SISTEMA') AS nombres,
+            IFNULL(u.apellidos, '(CARGA MASIVA)') AS apellidos,
+            m.num_sim, m.num_linea, m.cod_pin AS pin, m.cod_puk AS puk,
+            ts.descripcion AS tipo_sim,
+            o.descripcion AS operador,
+            p.descripcion AS plan,
+            c.descripcion AS capacidad,
+            e.descripcion AS estado,
+            r.descripcion AS responsable,
+            loc.descripcion AS ubicacion,
+            d.descripcion AS destino
+        FROM modificaciones m
+        LEFT JOIN usuarios u ON m.id_user = u.id_usuario
+        LEFT JOIN tiposim ts ON m.id_tiposim = ts.id_tiposim
+        LEFT JOIN operadores o ON m.id_operador = o.id_operador
+        LEFT JOIN planes p ON m.id_plan = p.id_plan
+        LEFT JOIN capacidades c ON m.id_capacidad = c.id_capacidad
+        LEFT JOIN estados e ON m.id_estado = e.id_estado
+        LEFT JOIN responsables r ON m.id_responsable = r.id_responsable
+        LEFT JOIN ubicaciones loc ON m.id_ubicacion = loc.id_ubicacion
+        LEFT JOIN destinos d ON m.id_destino = d.id_destino
+        WHERE m.id_sim = ?
+        ORDER BY m.created_at DESC
+    `, [Number(id)]);
 
-        return rows;
-
-    } catch (error) {
-        console.error("❌ Error en historial:", error.message);
-        throw error;
-    }
+    return rows;
 };
 
-// Busca de forma masiva los numeros de sim existentes entre una lista de parametros dada
+// Búsqueda masiva segura previniendo Injection / Type confusion en arreglos
 exports.buscarSimsMasivo = async (listaNums) => {
-    if (!listaNums.length) return [];
-    const placeholders = listaNums.map(() => '?').join(',');
+    if (!Array.isArray(listaNums) || !listaNums.length) return [];
+    
+    // Normalización estricta: asegurar que todos los elementos sean cadenas simples
+    const loteLimitado = listaNums
+        .filter(item => typeof item === 'string' || typeof item === 'number')
+        .map(item => String(item).trim())
+        .filter(Boolean)
+        .slice(0, 500);
+
+    if (loteLimitado.length === 0) return [];
+
+    const placeholders = loteLimitado.map(() => '?').join(',');
+
     const [rows] = await db.query(
         `SELECT num_sim FROM sim WHERE num_sim IN (${placeholders}) AND deleted_at IS NULL`,
-        listaNums
+        loteLimitado
     );
     return rows;
 };
 
-// Valida si una ip ya esta registrada y activa antes de empezar con una creacion
+// Valida si una IP está registrada al crear
 exports.validarIpDuplicadaCrear = async (ip) => {
     const [rows] = await db.query(`
-        SELECT i.id_sim, s.num_linea 
-            FROM ip i
-            INNER JOIN sim s ON i.id_sim = s.id_sim
-            WHERE i.ip = ? AND s.deleted_at IS NULL
-            LIMIT 1
-    `, [ip]);
+        SELECT i.id_sim, s.num_linea
+        FROM ip i
+        INNER JOIN sim s ON i.id_sim = s.id_sim
+        WHERE TRIM(i.ip) = TRIM(?) AND s.deleted_at IS NULL
+        LIMIT 1
+    `, [String(ip).trim()]);
     return rows.length > 0 ? rows[0] : null;
 };
 
-// Valida si una ip ya esta registrada por otra tarjeta activa antes de proceder con una actualizacion
+// Valida si una IP pertenece a otra tarjeta activa al actualizar
 exports.validarIpDuplicadaActualizar = async (ip, id_sim) => {
     const [rows] = await db.query(`
-        SELECT i.id_sim, s.num_linea 
-            FROM ip i
-            INNER JOIN sim s ON i.id_sim = s.id_sim
-            WHERE i.ip = ? AND i.id_sim != ? AND s.deleted_at IS NULL
-            LIMIT 1
-    `, [ip, id_sim]);
+        SELECT i.id_sim, s.num_linea
+        FROM ip i
+        INNER JOIN sim s ON i.id_sim = s.id_sim
+        WHERE TRIM(i.ip) = TRIM(?) 
+          AND i.id_sim != ? 
+          AND s.deleted_at IS NULL
+        LIMIT 1
+    `, [String(ip).trim(), Number(id_sim)]);
+    return rows.length > 0 ? rows[0] : null;
+};
+
+// Valida duplicidad de SIM o Línea al crear
+exports.validarSimOLineaDuplicadaCrear = async (num_sim, num_linea) => {
+    const [rows] = await db.query(`
+        SELECT num_sim, num_linea
+        FROM sim
+        WHERE (num_sim = ? OR num_linea = ?) AND deleted_at IS NULL
+        LIMIT 1
+    `, [String(num_sim).trim(), String(num_linea).trim()]);
+
+    return rows.length > 0 ? rows[0] : null;
+};
+
+// Valida duplicidad de SIM o Línea en otras tarjetas al actualizar
+exports.validarSimOLineaDuplicadaActualizar = async (num_sim, num_linea, id_sim) => {
+    const [rows] = await db.query(`
+        SELECT num_sim, num_linea
+        FROM sim
+        WHERE (num_sim = ? OR num_linea = ?) AND id_sim != ? AND deleted_at IS NULL
+        LIMIT 1
+    `, [String(num_sim).trim(), String(num_linea).trim(), Number(id_sim)]);
+
     return rows.length > 0 ? rows[0] : null;
 };

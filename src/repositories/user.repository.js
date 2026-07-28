@@ -2,7 +2,8 @@ const db = require('../config/db');
 
 const findByCorreo = async (correo) => {
     const [rows] = await db.query(
-        'SELECT id_usuario, nombres, correo, password, id_rol FROM usuarios WHERE LOWER(correo) = LOWER(?)',
+        // ✅ Agregamos 'estado' a la consulta SQL
+        'SELECT id_usuario, nombres, correo, password, estado, id_rol FROM usuarios WHERE LOWER(correo) = LOWER(?)',
         [correo]
     );
     return rows[0];

@@ -1,6 +1,6 @@
 const db = require('../config/db');
 
-// Obtiene de forma estructurada toda la informacion consolidada para armar el Excel
+// Obtiene de forma estructurada la información consolidada trayendo solo la ÚLTIMA IP y APN
 exports.obtenerDatosParaExcel = async () => {
     const [rows] = await db.query(`
         SELECT 
@@ -16,19 +16,17 @@ exports.obtenerDatosParaExcel = async () => {
             c.descripcion AS capacidad, 
             s.cod_pin, 
             s.cod_puk,
+            s.observacion,
             
-            -- Reemplaza valores nulos por vacio y limpia los saltos de linea
-            REPLACE(REPLACE(IFNULL(s.observacion, ''), '\\r', ' '), '\\n', ' ') AS observacion,
-            
-            -- Obtiene la ultima IP asociada a la SIM o retorna un texto por defecto
+            -- Obtiene la ÚLTIMA IP registrada ordenando por su ID de inserción
             COALESCE(
-                (SELECT ip FROM ip WHERE id_sim = s.id_sim ORDER BY ip DESC LIMIT 1), 
+                (SELECT ip FROM ip WHERE id_sim = s.id_sim ORDER BY id_ip DESC LIMIT 1), 
                 'SIN IP'
             ) AS ips,
             
-            -- Obtiene el ultimo APN asociado a la SIM o retorna un texto por defecto
+            -- Obtiene el ÚLTIMO APN registrado ordenando por su ID de inserción
             COALESCE(
-                (SELECT apn FROM apn WHERE id_sim = s.id_sim ORDER BY apn DESC LIMIT 1), 
+                (SELECT apn FROM apn WHERE id_sim = s.id_sim ORDER BY id_apn DESC LIMIT 1), 
                 'SIN APN'
             ) AS apns
 

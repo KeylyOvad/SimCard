@@ -6,12 +6,17 @@ const { generateToken } = require('../utils/jwt.util');
 const login = async (correo, password) => {
   // Busca si existe un usuario registrado con el correo 
   const user = await userRepository.findByCorreo(correo);
-  if (!user) throw new Error('INVALID_CREDENTIALS');
+  
+  // 1. Si no existe el usuario
+  // 2. O si el usuario está inactivo (estado 0)
+  if (!user || Number(user.estado) !== 1) {
+    throw new Error('INVALID_CREDENTIALS');
+  }
   
   // Compara la contrasena ingresada con el hash almacenado en la base de datos
   const isValid = await comparePassword(password, user.password);
   if (!isValid) throw new Error('INVALID_CREDENTIALS');
-   
+    
   // Genera el token JWT empaquetando la informacion basica del perfil autenticado
   const token = generateToken({
     id: user.id_usuario,

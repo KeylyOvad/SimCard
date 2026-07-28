@@ -2,17 +2,42 @@ const XLSX = require('xlsx');
 const SimRepository = require('../repositories/sim.repository');
 const db = require('../config/db');
 
+// Lista blanca 
+const TABLAS_PERMITIDAS = {
+    operadores: 'id_operador',
+    estados: 'id_estado',
+    planes: 'id_plan',
+    capacidades: 'id_capacidad',
+    responsables: 'id_responsable',
+    destinos: 'id_destino',
+    ubicaciones: 'id_ubicacion',
+    tiposim: 'id_tiposim'
+};
 
-// Trae los id validos del la tabla del excel para usarlos como validador
+function sanitizarTexto(cadena) {
+    if (!cadena) return '';
+    return String(cadena)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;')
+        .trim();
+}
+
+// Carga de identificadores usando la lista blanca
 async function cargarIdsValidos(tabla, columnaId) {
-    const [rows] = await db.query(`SELECT ${columnaId} AS id FROM ${tabla}`);
+    if (!TABLAS_PERMITIDAS[tabla] || TABLAS_PERMITIDAS[tabla] !== columnaId) {
+        throw new Error(`Acceso no autorizado a la tabla o columna: ${tabla}.${columnaId}`);
+    }
+    const [rows] = await db.query(`SELECT ?? AS id FROM ??`, [columnaId, tabla]);
     return new Set(rows.map(r => Number(r.id)));
 }
 
-// Trae todas las ip registradas para evitar duplicados
+// Carga la lista completa de direcciones IP para validar duplicados
 async function cargarIpsExistentes() {
     try {
-        const [rows] = await db.query(`SELECT ip FROM ip`); 
+        const [rows] = await db.query(`SELECT ip FROM ip`);
         return new Set(rows.map(r => String(r.ip).trim()));
     } catch (e) {
         console.warn('⚠️ Error al cargar historico de IPs:', e.message);
@@ -22,20 +47,27 @@ async function cargarIpsExistentes() {
 
 const importarExcel = async (req, res) => {
     try {
-        // Valida que el archivo exista
+        // Validacion de la presencia del archivo adjunto
         if (!req.file) {
-            return res.status(400).json({ message: 'No se envio archivo' });
+            return res.status(400).json({ message: 'No se envio ningun archivo' });
         }
 
-  const usuarioIdReal = req.user.id;
+        // Validacion del usuario autenticado en la sesion
+        const usuarioIdReal = req.user?.id;
+        if (!usuarioIdReal) {
+            return res.status(401).json({ message: 'Usuario no autenticado' });
+        }
 
-    if (!usuarioIdReal) {
-    return res.status(401).json({
-        message: 'Usuario no autenticado'
-      });
-      }
-        // Lee el archivo Excel y lo convierte a formato JSON
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        // Lectura del libro limitando las filas a procesar 
+        const workbook = XLSX.read(req.file.buffer, { 
+            type: 'buffer',
+            sheetRows: 5005 
+        });
+
+        if (!workbook.SheetNames.length) {
+            return res.status(400).json({ message: 'El archivo Excel no contiene hojas' });
+        }
+
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(sheet, { defval: null });
 
@@ -43,13 +75,13 @@ const importarExcel = async (req, res) => {
             return res.status(400).json({ message: 'El archivo esta vacio' });
         }
 
-        // Controla que el archivo no sea gigante
+        // Control de volumen de datos 
         const MAX_FILAS = 5000;
         if (data.length > MAX_FILAS) {
             return res.status(400).json({ message: `El archivo supera el limite de ${MAX_FILAS} filas` });
         }
 
-        // Carga todos los catalogos en memoria en paralelo (Mejora velocidad)
+        // Carga en paralelo de todos los catalogos requeridos
         let idsOperador, idsEstado, idsPlan, idsCapacidad, idsResponsable, idsDestino, idsUbicacion, idsTipoSim, ipsRegistradasEnBD;
         try {
             [
@@ -79,30 +111,30 @@ const importarExcel = async (req, res) => {
         }
 
         const filasValidas = [];
-        const errores      = [];
-        const simsEnExcel  = new Set(); 
-        const ipsEnExcel   = new Set(); 
+        const errores       = [];
+        const simsEnExcel   = new Set();
+        const ipsEnExcel    = new Set();
 
-        // Ciclo para validar cada fila del archivo Excel
+        // Iteracion principal sobre cada registro del archivo
         data.forEach((row, index) => {
-            const fila = index + 2; 
+            const fila = index + 2; // Compensacion por el encabezado en Excel
 
             const numSim   = row.NUM_SIM   != null ? String(row.NUM_SIM).trim()   : null;
             const numLinea = row.NUM_LINEA != null ? String(row.NUM_LINEA).trim() : null;
 
-            // 🛠️ BLINDAJE: Ignorar filas vacías o celdas fantasma inicializadas por Excel (como tu fila #7)
+            // Ignorar filas totalmente vacias dentro de la hoja
             const estaVacia = Object.values(row).every(valor => valor === null || valor === undefined || String(valor).trim() === '');
             if (estaVacia || (!numSim && !numLinea)) {
-                return; // Salta la fila silenciosamente sin generar errores
+                return;
             }
 
             const problemas = [];
 
-            // Valida campos de texto obligatorios
-            if (!numSim || numSim === '')   problemas.push('El campo NUM_SIM esta vacio o ausente.');
-            if (!numLinea || numLinea === '') problemas.push('El campo NUM_LINEA esta vacio o ausente.');
+            // Validaciones de campos obligatorios basicos
+            if (!numSim) problemas.push('El campo NUM_SIM esta vacio o ausente.');
+            if (!numLinea) problemas.push('El campo NUM_LINEA esta vacio o ausente.');
 
-            // Validaciones de claves foraneas contra los catalogos en memoria
+            // Validacion de claves foraneas contra los catalogos cargados
             if (row.ID_OPERADOR == null || String(row.ID_OPERADOR).trim() === '') {
                 problemas.push('El campo ID_OPERADOR es obligatorio.');
             } else {
@@ -167,11 +199,10 @@ const importarExcel = async (req, res) => {
                 else if (!idsTipoSim.has(tipoSim)) problemas.push(`El ID de Tipo SIM (${tipoSim}) no existe`);
             }
 
-            // Obtiene PIN y PUK como strings limpios
+            // Validaciones de formato para codigos de seguridad PIN y PUK
             const pinStr = row.COD_PIN != null ? String(row.COD_PIN).trim() : '';
             const pukStr = row.COD_PUK != null ? String(row.COD_PUK).trim() : '';
 
-            // Valida longitudes especificas solo si el usuario digito algo real que no sea vacio o "0"
             if (pinStr !== '' && pinStr !== '0' && pinStr.length !== 4) {
                 problemas.push(`El PIN debe tener exactamente 4 digitos.`);
             }
@@ -180,7 +211,7 @@ const importarExcel = async (req, res) => {
                 problemas.push(`El PUK debe tener exactamente 8 digitos.`);
             }
 
-            // Procesa columna de IPs
+            // Procesamiento de direcciones IP separadas por coma
             const celdaIp = row.IP != null ? String(row.IP).replace(/\s+/g, '') : '';
             const ipsFila = celdaIp ? celdaIp.split(',').filter(s => s.length > 0) : [];
 
@@ -193,41 +224,38 @@ const importarExcel = async (req, res) => {
                 }
             });
 
+            // Compatibilidad para la columna APN
             const celdaApn = row.ID_APN != null ? row.ID_APN : (row.APN != null ? row.APN : null);
 
-            // Valida sim repetidas dentro del Excel
             if (numSim && simsEnExcel.has(numSim)) {
                 problemas.push(`El numero de SIM ${numSim} esta repetido en el archivo`);
             }
 
-            // Si hay errores guarda el reporte y pasa a la siguiente fila
             if (problemas.length > 0) {
                 errores.push({ fila, numSim: numSim || '—', problemas });
                 return;
             }
 
-            // Registra en los Set temporales para controlar duplicados del archivo
+            // Registrar valores unicos procesados localmente en este lote
             simsEnExcel.add(numSim);
             ipsFila.forEach(ip => ipsEnExcel.add(ip));
 
-            // Valores por defecto corregidos para procesamiento masivo
+            // Asignacion de valores por defecto cuando no vienen especificados
             const pinFinal = (pinStr === '' || pinStr === '0') ? '0000' : pinStr;
             const pukFinal = (pukStr === '' || pukStr === '0') ? '00000000' : pukStr;
             
-            const observacionFinal = (row.OBSERVACION != null && String(row.OBSERVACION).trim() !== '') 
-                ? String(row.OBSERVACION).trim() 
-                : '';
+            // Sanitizacion de texto antes de la construccion del objeto final
+            const observacionFinal = sanitizarTexto(row.OBSERVACION);
 
-            // Estructura el objeto final para guardar
             filasValidas.push({
                 fila,
                 sim: {
-                    numeroSim:     numSim,
-                    numeroLinea:   numLinea,
+                    numeroSim:     sanitizarTexto(numSim),
+                    numeroLinea:   sanitizarTexto(numLinea),
                     operadorId:    Number(row.ID_OPERADOR),
                     estadoId:      Number(row.ID_ESTADO),
                     planId:        Number(row.ID_PLAN),
-                    capacidadId:   Number(row.ID_CAPACIDAD), 
+                    capacidadId:   Number(row.ID_CAPACIDAD),
                     responsableId: Number(row.ID_RESPONSABLE),
                     destinoId:     Number(row.ID_DESTINO),
                     ubicacionId:   Number(row.ID_UBICACION),
@@ -235,14 +263,14 @@ const importarExcel = async (req, res) => {
                     pin:           pinFinal,
                     puk:           pukFinal,
                     observacion:   observacionFinal,
-                    ip:            ipsFila,
-                    apn:           celdaApn ? String(celdaApn).split(',').map(s => s.trim()).filter(s => s.length > 0) : [],
+                    ip:            ipsFila.map(ip => sanitizarTexto(ip)),
+                    apn:           celdaApn ? String(celdaApn).split(',').map(s => sanitizarTexto(s)).filter(s => s.length > 0) : [],
                     id_user:       usuarioIdReal,
                 }
             });
         });
 
-        // Verifica qué sims de las validas ya existan guardadas en la BD
+        // Consulta en base de datos para verificar tarjetas SIM registradas previamente
         let existentesEnBD = [];
         if (filasValidas.length > 0) {
             try {
@@ -257,7 +285,7 @@ const importarExcel = async (req, res) => {
         
         const setExistentes = new Set(existentesEnBD.map(s => String(s.num_sim)));
 
-        // Separa las sims nuevas de las que ya existen en la plataforma
+        // Filtrado final separando registros insertables de los duplicados
         const paraInsertar = [];
         for (const item of filasValidas) {
             if (setExistentes.has(item.sim.numeroSim)) {
@@ -271,10 +299,10 @@ const importarExcel = async (req, res) => {
             }
         }
 
-        // Guarda en la BD dividiendo en lotes de 100 registros
         let guardadas = 0;
         const LOTE = 100;
 
+        // Insercion por bloques para evitar saturar el grupo de conexiones a la base de datos
         for (let i = 0; i < paraInsertar.length; i += LOTE) {
             const lote = paraInsertar.slice(i, i + LOTE);
             
@@ -284,23 +312,24 @@ const importarExcel = async (req, res) => {
                         await SimRepository.crear(sim);
                         guardadas++;
                     } catch (err) {
-                        console.error(`❌ Error al insertar fila ${fila}:`, err.message);
+                        // Registro detallado en los logs del servidor
+                        console.error(`❌ Error al insertar fila ${fila}:`, err);
+                        // Mensaje de respuesta seguro para el cliente
                         errores.push({
                             fila,
                             numSim: sim.numeroSim,
-                            problemas: [`Error al guardar en BD: ${err.message}`]
+                            problemas: ['Error al intentar guardar el registro en el sistema']
                         });
                     }
                 })
             );
         }
 
-        // Ordena la lista de errores por el número de fila
+        // Ordenar errores por numero de fila para ofrecer un reporte ordenado
         errores.sort((a, b) => a.fila - b.fila);
 
-        // Retorna el resultado final limpio sin celdas que no tengan nada 
         return res.json({
-            total:     paraInsertar.length + errores.length, 
+            total:     paraInsertar.length + errores.length,
             guardadas,
             omitidas: errores.length,
             errores,  

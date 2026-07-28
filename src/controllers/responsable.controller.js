@@ -4,9 +4,10 @@ const responsableRepository = require('../repositories/responsable.repository');
 const getResponsables = async (req, res) => {
   try {
     const responsables = await responsableRepository.getAllResponsables();
-    res.json(responsables);
+    return res.status(200).json(responsables);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al obtener responsables:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
@@ -15,22 +16,26 @@ const createResponsable = async (req, res) => {
   try {
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del responsable es obligatoria'
+        message: 'La descripción del responsable es obligatoria y debe ser texto'
       });
     }
 
     const descripcionNormalizada = descripcion.trim();
 
-    // Valida si ya existe un responsable con esa misma descripción
-    const existente = await responsableRepository.findByDescripcion(
-      descripcionNormalizada
-    );
+    if (descripcionNormalizada.length > 255) {
+      return res.status(400).json({
+        message: 'La descripción no puede superar los 255 caracteres'
+      });
+    }
+
+    // Valida si ya existe un responsable con esa misma descripcion
+    const existente = await responsableRepository.findByDescripcion(descripcionNormalizada);
 
     if (existente) {
-      return res.status(400).json({
-        message: `El responsable [${descripcionNormalizada}] ya se encuentra registrado.`
+      return res.status(409).json({
+        message: 'El responsable ingresado ya se encuentra registrado.'
       });
     }
 
@@ -38,45 +43,44 @@ const createResponsable = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.status(201).json(nuevo);
+    return res.status(201).json(nuevo);
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al crear responsable:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Actualiza un responsable existente usando su id
+// Actualiza un responsable existente usando su ID
 const updateResponsable = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del responsable es obligatoria'
+        message: 'La descripción del responsable es obligatoria y debe ser texto'
       });
     }
 
     const descripcionNormalizada = descripcion.trim();
 
-    // Valida si el nombre ya pertenece a otro responsable diferente al que estamos editando
-    const existente = await responsableRepository.findByDescripcion(
-      descripcionNormalizada
-    );
-
-    if (
-      existente &&
-      String(existente.id_responsable) !== String(id)
-    ) {
+    if (descripcionNormalizada.length > 255) {
       return res.status(400).json({
-        message: `No se puede actualizar. El responsable [${descripcionNormalizada}] ya existe.`
+        message: 'La descripción no puede superar los 255 caracteres'
+      });
+    }
+
+    const existente = await responsableRepository.findByDescripcion(descripcionNormalizada);
+
+    if (existente && String(existente.id_responsable) !== String(id)) {
+      return res.status(409).json({
+        message: 'No se puede actualizar. El responsable ingresado ya pertenece a otro registro.'
       });
     }
 
@@ -84,38 +88,37 @@ const updateResponsable = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.json(actualizado);
+    if (!actualizado) {
+      return res.status(404).json({ message: 'Responsable no encontrado' });
+    }
+
+    return res.status(200).json(actualizado);
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al actualizar responsable:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Elimina un responsable usando su id
+// Elimina un responsable usando su ID 
 const deleteResponsable = async (req, res) => {
   try {
     const id = Number(req.params.id);
-
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+     if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const eliminado = await responsableRepository.deleteResponsable(id);
 
     if (!eliminado) {
-      return res.status(404).json({
-        message: 'Responsable no encontrado'
-      });
+      return res.status(404).json({ message: 'Responsable no encontrado' });
     }
 
-    res.json({
-      message: 'Responsable eliminado correctamente'
-    });
+    return res.status(200).json({ message: 'Responsable eliminado correctamente' });
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al eliminar responsable:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 

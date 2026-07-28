@@ -4,9 +4,10 @@ const tipoSimRepository = require('../repositories/tipo-sim.repository');
 const getTiposSim = async (req, res) => {
   try {
     const tipos = await tipoSimRepository.getAllTiposSim();
-    res.json(tipos);
+    return res.status(200).json(tipos);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al obtener tipos de SIM:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
@@ -15,22 +16,25 @@ const createTipoSim = async (req, res) => {
   try {
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del tipo de SIM es obligatoria'
+        message: 'La descripción del tipo de SIM es obligatoria y debe ser texto'
+      });
+    }
+    const descripcionNormalizada = descripcion.trim();
+
+    if (descripcionNormalizada.length > 255) {
+      return res.status(400).json({
+        message: 'La descripción no puede superar los 255 caracteres'
       });
     }
 
-    const descripcionNormalizada = descripcion.trim();
-
-    // Valida si ya existe un tipo de SIM con esa misma descripción
-    const existente = await tipoSimRepository.findByDescripcion(
-      descripcionNormalizada
-    );
+    // Valida si ya existe un tipo de sim con esa misma descripción
+    const existente = await tipoSimRepository.findByDescripcion(descripcionNormalizada);
 
     if (existente) {
-      return res.status(400).json({
-        message: `El tipo de SIM [${descripcionNormalizada}] ya se encuentra registrado.`
+      return res.status(409).json({
+        message: 'El tipo de SIM ingresado ya se encuentra registrado.'
       });
     }
 
@@ -38,44 +42,44 @@ const createTipoSim = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.status(201).json(nuevo);
+    return res.status(201).json(nuevo);
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al crear tipo de SIM:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Actualiza un tipo de SIM existente usando su id
+// Actualiza un tipo de sim existente usando su ID
 const updateTipoSim = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const { descripcion } = req.body;
 
-    if (!descripcion || descripcion.trim() === '') {
+    if (!descripcion || typeof descripcion !== 'string' || descripcion.trim() === '') {
       return res.status(400).json({
-        message: 'La descripción del tipo de SIM es obligatoria'
+        message: 'La descripción del tipo de SIM es obligatoria y debe ser texto'
       });
     }
 
     const descripcionNormalizada = descripcion.trim();
 
-    const existente = await tipoSimRepository.findByDescripcion(
-      descripcionNormalizada
-    );
-
-    if (
-      existente &&
-      String(existente.id_tiposim) !== String(id)
-    ) {
+    if (descripcionNormalizada.length > 255) {
       return res.status(400).json({
-        message: `No se puede actualizar. El tipo de SIM [${descripcionNormalizada}] ya existe.`
+        message: 'La descripción no puede superar los 255 caracteres'
+      });
+    }
+
+    const existente = await tipoSimRepository.findByDescripcion(descripcionNormalizada);
+
+    if (existente && String(existente.id_tiposim) !== String(id)) {
+      return res.status(409).json({
+        message: 'No se puede actualizar. El tipo de SIM ingresado ya pertenece a otro registro.'
       });
     }
 
@@ -83,38 +87,38 @@ const updateTipoSim = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    res.json(actualizado);
+    if (!actualizado) {
+      return res.status(404).json({ message: 'Tipo de SIM no encontrado' });
+    }
+
+    return res.status(200).json(actualizado);
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al actualizar tipo de SIM:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 
-// Elimina un tipo de SIM usando su id
+// Elimina un tipo de sim usando su ID 
 const deleteTipoSim = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    if (isNaN(id)) {
-      return res.status(400).json({
-        message: 'ID inválido'
-      });
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ message: 'ID inválido' });
     }
 
     const eliminado = await tipoSimRepository.deleteTipoSim(id);
 
     if (!eliminado) {
-      return res.status(404).json({
-        message: 'Tipo de SIM no encontrado'
-      });
+      return res.status(404).json({ message: 'Tipo de SIM no encontrado' });
     }
 
-    res.json({
-      message: 'Tipo SIM eliminado correctamente'
-    });
+    return res.status(200).json({ message: 'Tipo de SIM eliminado correctamente' });
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error al eliminar tipo de SIM:', error);
+    return res.status(500).json({ message: 'Error interno del servidor' });
   }
 };
 

@@ -1,28 +1,27 @@
 const db = require('../config/db');
 
-// Busca un plan por su descripcion ignorando mayusculas y minusculas
+// Busca un plan ignorando mayUsculas y minusculas
 const findByDescripcion = async (descripcion) => {
   const [rows] = await db.query(
-    'SELECT id_plan, descripcion FROM planes WHERE LOWER(descripcion) = LOWER(?) AND deleted_at IS NULL',
+    'SELECT id_plan, descripcion FROM planes WHERE LOWER(descripcion) = LOWER(?) AND deleted_at IS NULL LIMIT 1',
     [descripcion]
   );
   return rows[0];
 };
 
-// Obtiene todos los planes que no han sido eliminados logicamente
+// Obtiene todos los planes 
 const getAllPlanes = async () => {
   const [rows] = await db.query(
-    'SELECT * FROM planes WHERE deleted_at IS NULL'
+    'SELECT id_plan, descripcion, created_at, updated_at FROM planes WHERE deleted_at IS NULL'
   );
   return rows;
 };
 
-// Inserta un nuevo plan en la base de datos
+// Inserta un nuevo plan
 const createPlan = async (plan) => {
   const { descripcion } = plan;
   const [result] = await db.query(
-    `INSERT INTO planes (descripcion, created_at, updated_at)
-     VALUES (?, NOW(), NOW())`,
+    `INSERT INTO planes (descripcion, created_at, updated_at) VALUES (?, NOW(), NOW())`,
     [descripcion]
   );
   return {
@@ -31,28 +30,28 @@ const createPlan = async (plan) => {
   };
 };
 
-// Actualiza la descripcion de un plan existente usando su id
+// Actualiza la descripción validando que el registro exista 
 const updatePlan = async (id, plan) => {
   const { descripcion } = plan;
-  await db.query(
-    `UPDATE planes 
-     SET descripcion = ?, updated_at = NOW() 
-     WHERE id_plan = ?`,
+  const [result] = await db.query(
+    `UPDATE planes SET descripcion = ?, updated_at = NOW() WHERE id_plan = ? AND deleted_at IS NULL`,
     [descripcion, id]
   );
+
+  if (result.affectedRows === 0) return null;
   return { id_plan: id, descripcion };
 };
 
-// Elimina un plan usando su id
+// Borrado Logico 
 const deletePlan = async (id) => {
-  await db.query(
-    `DELETE FROM planes WHERE id_plan = ?`,
+  const [result] = await db.query(
+    `UPDATE planes SET deleted_at = NOW() WHERE id_plan = ? AND deleted_at IS NULL`,
     [id]
   );
-  return true;
+  return result.affectedRows > 0;
 };
 
-// Realiza una eliminacion fisica del plan validando filas afectadas
+// Borrado fisico solo para procesos internos
 const hardDeletePlan = async (id) => {
   const [result] = await db.query(
     `DELETE FROM planes WHERE id_plan = ?`,
