@@ -1,15 +1,16 @@
 const jwt = require('jsonwebtoken');
 
-// Valida que la peticion incluya un token JWT valido
+// Verifica que la peticion tenga un token valido
 const verificarToken = (req, res, next) => {
-  // Deja pasar peticiones CORS OPTIONS sin pedir token
+  // Permite peticiones OPTIONS para CORS
   if (req.method === 'OPTIONS') {
     return next();
   }
 
-  // Soporta cabeceras en mayusculas o minusculas
+  // Obtiene el encabezado de autorizacion
   const authHeader = req.headers['authorization'] || req.headers.authorization;
   
+  // Valida que exista el encabezado y empiece con Bearer
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ 
       status: 'error',
@@ -17,9 +18,10 @@ const verificarToken = (req, res, next) => {
     });
   }
 
-  // Extrae el token removiendo "Bearer "
+  // Extrae el token
   const token = authHeader.replace(/^Bearer\s+/, '').trim();
 
+  // Valida que el token no este vacio o sea invalido
   if (!token || token === 'null' || token === 'undefined') {
     return res.status(401).json({ 
       status: 'error',
@@ -28,10 +30,10 @@ const verificarToken = (req, res, next) => {
   }
 
   try {
-    // Verifica la firma del token con la clave secreta
+    // Valida la firma del token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // Inyecta los datos del usuario en la peticion
-    next(); // Permite continuar a la siguiente funcion o controlador
+    req.user = decoded; 
+    next(); 
   } catch (error) {
     console.error('Error JWT:', error.message);
     return res.status(401).json({ 
@@ -41,15 +43,16 @@ const verificarToken = (req, res, next) => {
   }
 };
 
-// Valida si el usuario de la peticion tiene asignado el rol de Administrador
+// Valida si el usuario es administrador
 const esAdmin = (req, res, next) => {
+  // Comprueba el rol del usuario (1 = Admin)
   if (!req.user || !req.user.id_rol || Number(req.user.id_rol) !== 1) {
     return res.status(403).json({ 
       status: 'error',
       message: 'Acceso denegado: Permisos insuficientes.' 
     });
   }
-  next();
+  next(); 
 };
 
 module.exports = { verificarToken, esAdmin };

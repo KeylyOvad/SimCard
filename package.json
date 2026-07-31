@@ -4,9 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "test": "jest --runInBand --detectOpenHandles",
-  "test:coverage": "jest --coverage --runInBand"
-},
+    "test": "jest --runInBand --detectOpenHandles",
+    "test:coverage": "jest --coverage --runInBand"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -21,6 +21,7 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
+    "mssql": "^12.7.0",
     "multer": "^2.1.1",
     "mysql2": "^3.22.2",
     "xlsx": "^0.18.5"

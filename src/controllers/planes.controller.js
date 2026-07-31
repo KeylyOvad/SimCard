@@ -31,7 +31,7 @@ const createPlan = async (req, res) => {
       });
     }
 
-    // Valida si ya existe un plan con esa misma descripciOn
+    // Valida si ya existe un plan con esa misma descripcion
     const existente = await planesRepository.findByDescripcion(descripcionNormalizada);
 
     if (existente) {
@@ -118,7 +118,7 @@ const deletePlan = async (req, res) => {
       return res.status(404).json({ message: 'Plan no encontrado' });
     }
 
-    // 200 OK
+    
     return res.status(200).json({ message: 'Plan eliminado correctamente' });
 
   } catch (error) {

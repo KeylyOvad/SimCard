@@ -1,65 +1,112 @@
-const db = require('../config/db');
+const { poolPromise } = require('../config/db');
 
-// Busca un destino por su descripción ignorando mayusculas y minusculas
+// Busca un destino por su descripción ignorando mayúsculas y minúsculas
 const findByDescripcion = async (descripcion) => {
-  const [rows] = await db.query(
-    'SELECT id_destino, descripcion FROM destinos WHERE LOWER(descripcion) = LOWER(?) AND deleted_at IS NULL LIMIT 1',
-    [descripcion]
-  );
-  return rows[0];
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('descripcion', descripcion)
+    .query(`
+      SELECT TOP 1
+        id_destino,
+        descripcion
+      FROM destinos
+      WHERE LOWER(descripcion) = LOWER(@descripcion)
+        AND deleted_at IS NULL
+    `);
+
+  return result.recordset[0];
 };
 
-// Obtiene todos los destinos que no han sido eliminados logicamente
+// Obtiene todos los destinos activos
 const getAllDestinos = async () => {
-  const [rows] = await db.query(
-    'SELECT id_destino, descripcion, created_at, updated_at FROM destinos WHERE deleted_at IS NULL'
-  );
-  return rows;
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .query(`
+      SELECT
+        id_destino,
+        descripcion,
+        created_at,
+        updated_at
+      FROM destinos
+      WHERE deleted_at IS NULL
+    `);
+
+  return result.recordset;
 };
 
 // Inserta un nuevo destino
 const createDestino = async (dest) => {
-  const { descripcion } = dest;
-  const [result] = await db.query(
-    `INSERT INTO destinos (descripcion, created_at, updated_at)
-     VALUES (?, NOW(), NOW())`,
-    [descripcion]
-  );
-  return { id_destino: result.insertId, descripcion };
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('descripcion', dest.descripcion)
+    .query(`
+      INSERT INTO destinos
+      (descripcion, created_at, updated_at)
+      OUTPUT INSERTED.id_destino
+      VALUES
+      (@descripcion, GETDATE(), GETDATE())
+    `);
+
+  return {
+    id_destino: result.recordset[0].id_destino,
+    descripcion: dest.descripcion
+  };
 };
 
-// Actualiza la descripcion
+// Actualiza la descripción
 const updateDestino = async (id, dest) => {
-  const { descripcion } = dest;
-  const [result] = await db.query(
-    `UPDATE destinos 
-     SET descripcion = ?, updated_at = NOW() 
-     WHERE id_destino = ? AND deleted_at IS NULL`,
-    [descripcion, id]
-  );
+  const pool = await poolPromise;
 
-  if (result.affectedRows === 0) return null;
-  return { id_destino: id, descripcion };
+  const result = await pool.request()
+    .input('id', id)
+    .input('descripcion', dest.descripcion)
+    .query(`
+      UPDATE destinos
+      SET descripcion = @descripcion,
+          updated_at = GETDATE()
+      WHERE id_destino = @id
+        AND deleted_at IS NULL
+    `);
+
+  if (result.rowsAffected[0] === 0) return null;
+
+  return {
+    id_destino: id,
+    descripcion: dest.descripcion
+  };
 };
 
-// Borrado logico 
+// Borrado lógico
 const deleteDestino = async (id) => {
-  const [result] = await db.query(
-    `UPDATE destinos 
-     SET deleted_at = NOW() 
-     WHERE id_destino = ? AND deleted_at IS NULL`,
-    [id]
-  );
-  return result.affectedRows > 0;
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('id', id)
+    .query(`
+      UPDATE destinos
+      SET deleted_at = GETDATE()
+      WHERE id_destino = @id
+        AND deleted_at IS NULL
+    `);
+
+  return result.rowsAffected[0] > 0;
 };
 
-// Borrado fisico solo para procesos internos
+// Borrado físico
 const hardDeleteDestino = async (id) => {
-  const [result] = await db.query(
-    `DELETE FROM destinos WHERE id_destino = ?`,
-    [id]
-  );
-  return result.affectedRows > 0;
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('id', id)
+    .query(`
+      DELETE FROM destinos
+      WHERE id_destino = @id
+    `);
+
+  return result.rowsAffected[0] > 0;
 };
 
 module.exports = {

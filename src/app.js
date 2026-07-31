@@ -2,8 +2,8 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet'); // Para que no nos hackeen las cabeceras tan facil
-const rateLimit = require('express-rate-limit'); // Evita que un bot pesado dañe el server a peticiones
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/auth.routes');
 const { verificarToken } = require('./middlewares/auth.middleware');
@@ -23,14 +23,20 @@ const reporteRoutes = require('./routes/reporte.routes');
 
 const app = express();
 
-// Activa helmet para meter seguridad basica y que no nos hagan XSS o Clickjacking
-app.use(helmet());
+// 1. CORS primero siempre
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true 
+}));
 
-// Parches extra de seguridad para navegadores viejos e inyecciones raras
+// 2. Cabeceras de seguridad
+app.use(helmet());
 app.use(helmet.noSniff());
 app.use(helmet.ieNoOpen());
 
-// Esto es para que el navegador no guarde en cache las respuestas y pida datos nuevos siempre
+// Desactivar caché en el navegador
 app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -38,39 +44,29 @@ app.use((req, res, next) => {
   next();
 });
 
-// Borra el header que dice que se usa Express, asi los atacantes no saben en que esta hecha la API
 app.disable('x-powered-by');
 
-// Limite de confianza: maximo 150 clicks o peticiones cada 15 minutos por usuario
+// 3. Rate limiter ampliado para evitar bloqueos
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 150, 
+  max: 2000, // Límite de peticiones
   message: {
     status: 429,
     error: 'Demasiadas solicitudes desde esta IP. Bloqueo temporal por seguridad.'
   },
-  standardHeaders: true, // Retorna información de límite en los headers `RateLimit-*`
-  legacyHeaders: false, // Deshabilita los headers obsoletos `X-RateLimit-*`
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api/', globalLimiter);
 
-// Permite que el frontend de Angular en el puerto 4200 pueda hablar con este backend sin bloquearse
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:4200',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true 
-}));
-
-// Pone un limite de 10 megas a lo que nos manden para que no nos rompan el server con archivos gigantes
+// Lectura de JSON y formularios (máximo 10mb)
 app.use(express.json({ limit: '10mb' })); 
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-
-// Rutas abiertas donde cualquiera puede entrar 
+// 4. Rutas públicas
 app.use('/api/auth', authRoutes);
 
-//todo pide token obligatorio porque si no, no se entra
+// 5. Rutas protegidas con token
 app.use('/api/usuarios', verificarToken, userRoutes); 
 app.use('/api/sims', verificarToken, simRoutes);
 app.use('/api/sims', verificarToken, cargaExcelRoutes); 
@@ -85,12 +81,11 @@ app.use('/api/responsables', verificarToken, responsableRoutes);
 app.use('/api/estados', verificarToken, estadoRoutes);
 app.use('/api/reportes', verificarToken, reporteRoutes);
 
-// Ruta de bienvenida para ver en el navegador si la API esta corriendo
+// Rutas de prueba
 app.get('/', (req, res) => {
   res.status(200).send('Servicio Activo.');
 });
 
-// Ruta rapida para ver que el sistema responde bien y esta vivo
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
@@ -98,7 +93,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Un endpoint  para probar en Postman si el middleware del token de verdad bloquea
 app.get('/api/protegido', verificarToken, (req, res) => {
   res.json({
     message: 'Acceso permitido',

@@ -1,68 +1,113 @@
-const db = require('../config/db');
+const { poolPromise } = require('../config/db');
 
 // Busca una capacidad por su descripción ignorando mayusculas y minusculas
 const findByDescripcion = async (descripcion) => {
-  const [rows] = await db.query(
-    'SELECT id_capacidad, descripcion FROM capacidades WHERE LOWER(descripcion) = LOWER(?) AND deleted_at IS NULL LIMIT 1',
-    [descripcion]
-  );
-  return rows[0];
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('descripcion', descripcion)
+    .query(`
+      SELECT TOP 1
+        id_capacidad,
+        descripcion
+      FROM capacidades
+      WHERE LOWER(descripcion) = LOWER(@descripcion)
+        AND deleted_at IS NULL
+    `);
+
+  return result.recordset[0];
 };
 
-// Obtiene todas las capacidades activas 
+// Obtiene todas las capacidades activas
 const getAllCapacidades = async () => {
-  const [rows] = await db.query(
-    'SELECT id_capacidad, descripcion, created_at, updated_at FROM capacidades WHERE deleted_at IS NULL'
-  );
-  return rows;
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .query(`
+      SELECT
+        id_capacidad,
+        descripcion,
+        created_at,
+        updated_at
+      FROM capacidades
+      WHERE deleted_at IS NULL
+    `);
+
+  return result.recordset;
 };
 
-// Inserta una nueva capacidad en la base de datos
+// Inserta una nueva capacidad
 const createCapacidad = async (cap) => {
-  const { descripcion } = cap;
-  const [result] = await db.query(
-    `INSERT INTO capacidades (descripcion, created_at, updated_at)
-     VALUES (?, NOW(), NOW())`,
-    [descripcion]
-  );
-  return { id_capacidad: result.insertId, descripcion };
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('descripcion', cap.descripcion)
+    .query(`
+      INSERT INTO capacidades
+      (descripcion, created_at, updated_at)
+      OUTPUT INSERTED.id_capacidad
+      VALUES
+      (@descripcion, GETDATE(), GETDATE())
+    `);
+
+  return {
+    id_capacidad: result.recordset[0].id_capacidad,
+    descripcion: cap.descripcion
+  };
 };
 
-// Actualiza la descripcion de una capacidad existente
+// Actualiza una capacidad
 const updateCapacidad = async (id, cap) => {
-  const { descripcion } = cap;
-  const [result] = await db.query(
-    `UPDATE capacidades 
-     SET descripcion = ?, updated_at = NOW() 
-     WHERE id_capacidad = ? AND deleted_at IS NULL`,
-    [descripcion, id]
-  );
-  
-  if (result.affectedRows === 0) return null;
-  return { id_capacidad: id, descripcion };
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('id', id)
+    .input('descripcion', cap.descripcion)
+    .query(`
+      UPDATE capacidades
+      SET descripcion = @descripcion,
+          updated_at = GETDATE()
+      WHERE id_capacidad = @id
+        AND deleted_at IS NULL
+    `);
+
+  if (result.rowsAffected[0] === 0) return null;
+
+  return {
+    id_capacidad: id,
+    descripcion: cap.descripcion
+  };
 };
 
-// Borrado logico de la capacidad
+// Borrado logico
 const deleteCapacidad = async (id) => {
-  const [result] = await db.query(
-    `UPDATE capacidades
-     SET deleted_at = NOW()
-     WHERE id_capacidad = ? AND deleted_at IS NULL`,
-    [id]
-  );
+  const pool = await poolPromise;
 
-  return result.affectedRows > 0;
+  const result = await pool.request()
+    .input('id', id)
+    .query(`
+      UPDATE capacidades
+      SET deleted_at = GETDATE()
+      WHERE id_capacidad = @id
+        AND deleted_at IS NULL
+    `);
+
+  return result.rowsAffected[0] > 0;
 };
 
-// Borrado fisico solo para procesos internos
+// Borrado fisico
 const hardDeleteCapacidad = async (id) => {
-  const [result] = await db.query(
-    `DELETE FROM capacidades WHERE id_capacidad = ?`,
-    [id]
-  );
-  return result.affectedRows > 0;
-};
+  const pool = await poolPromise;
 
+  const result = await pool.request()
+    .input('id', id)
+    .query(`
+      DELETE FROM capacidades
+      WHERE id_capacidad = @id
+    `);
+
+  return result.rowsAffected[0] > 0;
+};
 
 module.exports = {
   findByDescripcion,

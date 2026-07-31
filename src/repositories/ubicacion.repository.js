@@ -1,60 +1,112 @@
-const db = require('../config/db');
+const { poolPromise } = require('../config/db');
 
-// Busca una ubicacion ignorando mayusculas y minusculas
+// Busca una ubicación ignorando mayúsculas y minúsculas
 const findByDescripcion = async (descripcion) => {
-  const [rows] = await db.query(
-    'SELECT id_ubicacion, descripcion FROM ubicaciones WHERE LOWER(descripcion) = LOWER(?) AND deleted_at IS NULL LIMIT 1',
-    [descripcion]
-  );
-  return rows[0];
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('descripcion', descripcion)
+    .query(`
+      SELECT TOP 1
+        id_ubicacion,
+        descripcion
+      FROM ubicaciones
+      WHERE LOWER(descripcion) = LOWER(@descripcion)
+        AND deleted_at IS NULL
+    `);
+
+  return result.recordset[0];
 };
 
-// Obtiene todas las ubicaciones activas 
+// Obtiene todas las ubicaciones activas
 const getAllUbicaciones = async () => {
-  const [rows] = await db.query(
-    'SELECT id_ubicacion, descripcion, created_at, updated_at FROM ubicaciones WHERE deleted_at IS NULL'
-  );
-  return rows;
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .query(`
+      SELECT
+        id_ubicacion,
+        descripcion,
+        created_at,
+        updated_at
+      FROM ubicaciones
+      WHERE deleted_at IS NULL
+    `);
+
+  return result.recordset;
 };
 
 // Inserta una nueva ubicación
 const createUbicacion = async (ubi) => {
-  const { descripcion } = ubi;
-  const [result] = await db.query(
-    `INSERT INTO ubicaciones (descripcion, created_at, updated_at) VALUES (?, NOW(), NOW())`,
-    [descripcion]
-  );
-  return { id_ubicacion: result.insertId, descripcion };
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('descripcion', ubi.descripcion)
+    .query(`
+      INSERT INTO ubicaciones
+      (descripcion, created_at, updated_at)
+      OUTPUT INSERTED.id_ubicacion
+      VALUES
+      (@descripcion, GETDATE(), GETDATE())
+    `);
+
+  return {
+    id_ubicacion: result.recordset[0].id_ubicacion,
+    descripcion: ubi.descripcion
+  };
 };
 
-// Actualiza la descripcion validando que el registro exista
+// Actualiza la descripción
 const updateUbicacion = async (id, ubi) => {
-  const { descripcion } = ubi;
-  const [result] = await db.query(
-    `UPDATE ubicaciones SET descripcion = ?, updated_at = NOW() WHERE id_ubicacion = ? AND deleted_at IS NULL`,
-    [descripcion, id]
-  );
+  const pool = await poolPromise;
 
-  if (result.affectedRows === 0) return null;
-  return { id_ubicacion: id, descripcion };
+  const result = await pool.request()
+    .input('id', id)
+    .input('descripcion', ubi.descripcion)
+    .query(`
+      UPDATE ubicaciones
+      SET descripcion = @descripcion,
+          updated_at = GETDATE()
+      WHERE id_ubicacion = @id
+        AND deleted_at IS NULL
+    `);
+
+  if (result.rowsAffected[0] === 0) return null;
+
+  return {
+    id_ubicacion: id,
+    descripcion: ubi.descripcion
+  };
 };
 
-// Borrado Logico
+// Borrado lógico
 const deleteUbicacion = async (id) => {
-  const [result] = await db.query(
-    `UPDATE ubicaciones SET deleted_at = NOW() WHERE id_ubicacion = ? AND deleted_at IS NULL`,
-    [id]
-  );
-  return result.affectedRows > 0;
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('id', id)
+    .query(`
+      UPDATE ubicaciones
+      SET deleted_at = GETDATE()
+      WHERE id_ubicacion = @id
+        AND deleted_at IS NULL
+    `);
+
+  return result.rowsAffected[0] > 0;
 };
 
-// Borrado Fisico 
+// Borrado físico
 const hardDeleteUbicacion = async (id) => {
-  const [result] = await db.query(
-    `DELETE FROM ubicaciones WHERE id_ubicacion = ?`,
-    [id]
-  );
-  return result.affectedRows > 0;
+  const pool = await poolPromise;
+
+  const result = await pool.request()
+    .input('id', id)
+    .query(`
+      DELETE FROM ubicaciones
+      WHERE id_ubicacion = @id
+    `);
+
+  return result.rowsAffected[0] > 0;
 };
 
 module.exports = {

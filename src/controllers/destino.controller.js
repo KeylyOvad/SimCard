@@ -33,11 +33,10 @@ const createDestino = async (req, res) => {
       });
     }
 
-    // Valida si ya existe un destino idéntico
+    // Valida si ya existe un destino identico
     const existente = await destinoRepository.findByDescripcion(descripcionNormalizada);
 
     if (existente) {
-      // 409 Conflict (A01: Prevención XSS al no reflejar el input ingresado)
       return res.status(409).json({
         message: 'El destino ingresado ya se encuentra registrado.'
       });
@@ -47,7 +46,6 @@ const createDestino = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    // 201 Created
     return res.status(201).json(nuevo);
 
   } catch (error) {
@@ -61,7 +59,6 @@ const updateDestino = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    // Validación estricta de entero positivo
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ message: 'ID inválido' });
     }
@@ -98,7 +95,6 @@ const updateDestino = async (req, res) => {
       return res.status(404).json({ message: 'Destino no encontrado' });
     }
 
-    // 200 OK
     return res.status(200).json(actualizado);
 
   } catch (error) {

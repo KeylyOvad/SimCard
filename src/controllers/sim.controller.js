@@ -1,18 +1,13 @@
 const simService = require('../services/sim.service');
 const simRepository = require('../repositories/sim.repository');
 
-/**
- * Normaliza y limpia campos de texto simples.
- * Mantener el texto en formato plano evita corrupción de caracteres en BD/exportaciones (OWASP A03/A04).
- */
+// Limpia espacios en blanco
 const limpiarTexto = (texto) => {
     if (texto === null || texto === undefined) return null;
     return String(texto).trim();
 };
 
-/**
- * Valida y extrae únicamente un arreglo de cadenas primitivas (Evita Injection de Objetos / Type Confusion).
- */
+// Convierte a arreglo de textos validos
 const extraerArregloStrings = (arr) => {
     if (!Array.isArray(arr)) return [];
     return Array.from(
@@ -21,11 +16,11 @@ const extraerArregloStrings = (arr) => {
                 .filter(item => typeof item === 'string' || typeof item === 'number')
                 .map(item => String(item).trim())
                 .filter(Boolean)
-        )
+       )
     );
 };
 
-// Trae todas las SIMs registradas
+// Obtiene la lista de todas las sim
 const getSims = async (req, res) => {
     try {
         const sims = await simService.getSims();
@@ -36,12 +31,13 @@ const getSims = async (req, res) => {
     }
 };
 
-// Busca una SIM específica por ID
+// Obtiene una sim por id
 const getSimById = async (req, res) => {
     try {
         const { id } = req.params;
         const simId = Number(id);
         
+        // Valida que el id sea un numero entero
         if (!Number.isInteger(simId) || simId <= 0) {
             return res.status(400).json({ message: 'El ID provisto no es válido.' });
         }
@@ -57,9 +53,10 @@ const getSimById = async (req, res) => {
     }
 };
 
-// Crea una nueva SIM con validaciones completas
+// Registra una nueva SIM
 const createSim = async (req, res) => {
     try {
+        // Valida usuario autenticado
         const id_usuario_activo = req.user?.id;
         if (!id_usuario_activo) {
             return res.status(401).json({ message: 'Usuario no autenticado' });
@@ -71,7 +68,7 @@ const createSim = async (req, res) => {
             ubicacionId, destinoId, pin, puk
         } = req.body;
 
-        // Validar campos requeridos
+        // Valida campos obligatorios
         if (
             !numeroSim || !String(numeroSim).trim() ||
             !numeroLinea || !String(numeroLinea).trim() ||
@@ -92,7 +89,7 @@ const createSim = async (req, res) => {
         const simLimpio = String(numeroSim).trim();
         const lineaLimpia = String(numeroLinea).trim();
 
-        // Verificar duplicados de SIM o Línea en BD
+        // Valida que no exista la sim o Linea
         const simExistente = await simRepository.validarSimOLineaDuplicadaCrear(simLimpio, lineaLimpia);
 
         if (simExistente) {
@@ -108,11 +105,11 @@ const createSim = async (req, res) => {
             }
         }
 
-        // Procesamiento e higienización estricta de tipos para IPs y APNs
+        // Limpia arreglos de ip y apn
         const ipsLimpias = extraerArregloStrings(req.body.ip);
         const apnsLimpios = extraerArregloStrings(req.body.apn);
 
-        // Validar duplicado de IPs antes de crear
+        // Valida ip duplicadas
         for (const ip of ipsLimpias) {
             const duplicada = await simRepository.validarIpDuplicadaCrear(ip);
             if (duplicada) {
@@ -124,6 +121,7 @@ const createSim = async (req, res) => {
 
         const observacionLimpia = limpiarTexto(req.body.observacion);
 
+        // Arma el objeto para guardar
         const payloadDTO = {
             numeroSim: simLimpio,
             numeroLinea: lineaLimpia,
@@ -152,14 +150,16 @@ const createSim = async (req, res) => {
     }
 };
 
-// Actualiza los datos de una SIM y exige una razón de cambio
+// Actualiza una sim existente
 const updateSim = async (req, res) => {
     try {
+        // Valida usuario autenticado
         const id_usuario_activo = req.user?.id;
         if (!id_usuario_activo) {
             return res.status(401).json({ message: 'Usuario no autenticado' });
         }
 
+        // Valida id de la sim
         const simId = Number(req.params.id);
         if (!Number.isInteger(simId) || simId <= 0) {
             return res.status(400).json({ message: 'El ID provisto no es válido.' });
@@ -171,6 +171,7 @@ const updateSim = async (req, res) => {
             ubicacionId, destinoId, razonModificacion, pin, puk
         } = req.body;
 
+        // Valida campos obligatorios y razon de cambio
         if (
             !numeroSim || !String(numeroSim).trim() ||
             !numeroLinea || !String(numeroLinea).trim() ||
@@ -192,7 +193,7 @@ const updateSim = async (req, res) => {
         const simLimpio = String(numeroSim).trim();
         const lineaLimpia = String(numeroLinea).trim();
 
-        // Validar duplicado de Número SIM o Línea en otras tarjetas al actualizar
+        // Valida duplicados en otras sim
         const simExistente = await simRepository.validarSimOLineaDuplicadaActualizar(simLimpio, lineaLimpia, simId);
 
         if (simExistente) {
@@ -208,11 +209,11 @@ const updateSim = async (req, res) => {
             }
         }
 
-        // Limpieza y validación de tipos para IPs y APNs
+        // Limpia arreglos
         const ipsLimpias = extraerArregloStrings(req.body.ip);
         const apnsLimpios = extraerArregloStrings(req.body.apn);
 
-        // Validar duplicado de IPs en otras tarjetas antes de actualizar
+        // Valida ip  duplicadas en otras sim
         for (const ip of ipsLimpias) {
             const duplicada = await simRepository.validarIpDuplicadaActualizar(ip, simId);
             if (duplicada) {
@@ -225,6 +226,7 @@ const updateSim = async (req, res) => {
         const observacionLimpia = limpiarTexto(req.body.observacion);
         const razonLimpia = limpiarTexto(razonModificacion);
 
+        // Arma el objeto para actualizar
         const payloadDTO = {
             numeroSim: simLimpio,
             numeroLinea: lineaLimpia,
@@ -254,12 +256,13 @@ const updateSim = async (req, res) => {
     }
 };
 
-// Elimina una SIM (borrado lógico) por ID
+// Elimina una sim por id
 const deleteSim = async (req, res) => {
     try {
         const { id } = req.params;
         const simId = Number(id);
 
+        // Valida id
         if (!Number.isInteger(simId) || simId <= 0) {
             return res.status(400).json({ message: 'El ID provisto no es válido.' });
         }
@@ -276,12 +279,13 @@ const deleteSim = async (req, res) => {
     }
 };
 
-// Obtiene el historial de modificaciones
+// Obtiene el historial de cambios de una sim
 const getHistorial = async (req, res) => {
     try {
         const { id } = req.params;
         const simId = Number(id);
 
+        // Valida id
         if (!Number.isInteger(simId) || simId <= 0) {
             return res.status(400).json({ message: 'El ID provisto no es válido.' });
         }

@@ -48,7 +48,6 @@ const createOperador = async (req, res) => {
       descripcion: descripcionNormalizada
     });
 
-    // 201 Created: CreaciOn exitosa
     return res.status(201).json(nuevo);
 
   } catch (error) {

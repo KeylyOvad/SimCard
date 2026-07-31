@@ -3,17 +3,21 @@ const ExcelJS = require('exceljs');
 
 exports.descargarExcel = async (req, res) => {
     try {
+        // Consulta los datos desde el repositorio
         const datos = await reporteRepository.obtenerDatosParaExcel();
 
+        // Validacion por si no hay registros para exportar
         if (!datos || datos.length === 0) {
             return res.status(404).json({
                 message: 'No existen registros para exportar'
             });
         }
 
+        // Creacion de la instancia del libro de Excel y la hoja de trabajo
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet('SIMCARDS CENS');
 
+        // Definicion de las columnas con sus encabezados y claves
         worksheet.columns = [
             { header: 'N° LINEA', key: 'num_linea' },
             { header: 'N° SIM', key: 'num_sim' },
@@ -32,12 +36,14 @@ exports.descargarExcel = async (req, res) => {
             { header: 'OBSERVACION', key: 'observacion' }
         ];
 
+        // Iteracion sobre cada registro para insertar las filas
         datos.forEach((item, index) => {
-            // Limpia adecuadamente saltos de línea sin que falle la consulta SQL
+            // Limpia saltos de linea y espacios duplicados en las observaciones
             const observacionLimpia = item.observacion 
                 ? String(item.observacion).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
                 : '';
 
+            // Mapeo e insercion de los datos en la fila
             const row = worksheet.addRow({
                 num_linea: isNaN(item.num_linea) ? item.num_linea : Number(item.num_linea),
                 num_sim: item.num_sim ? String(item.num_sim) : '',
@@ -56,17 +62,20 @@ exports.descargarExcel = async (req, res) => {
                 observacion: observacionLimpia
             });
 
+            // Determina color de fondo alternado para filas pares e impares
             const esPar = index % 2 === 0;
             const fondoCeldaColor = esPar ? 'F9FAFB' : 'FFFFFF';
 
-            // Fuerza la columna N° SIM, PIN y PUK a texto
+            // Formato explicito de texto para campos numericos largos o con ceros a la izquierda
             row.getCell(2).numFmt = '@';
             row.getCell(11).numFmt = '@';
             row.getCell(12).numFmt = '@';
 
+            // Aplicacion de estilos celda por celda
             row.eachCell((cell, colNumber) => {
                 cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF333333' } };
                 
+                // Ajuste de alineacion especial para observaciones 
                 if (colNumber === 15) {
                     cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true, indent: 1 };
                 } else {
@@ -82,6 +91,7 @@ exports.descargarExcel = async (req, res) => {
                     left: { style: 'thin', color: { argb: 'FFE5E7EB' } }
                 };
 
+                // Estilo condicional para la columna ESTADO 
                 if (colNumber === 6) {
                     const est = cell.value ? String(cell.value).trim().toLowerCase() : '';
                     cell.alignment = { vertical: 'middle', horizontal: 'center' };
@@ -100,6 +110,7 @@ exports.descargarExcel = async (req, res) => {
             });
         });
 
+        // Estilos para la fila de encabezados
         const headerRow = worksheet.getRow(1);
         headerRow.height = 32;
         
@@ -113,8 +124,10 @@ exports.descargarExcel = async (req, res) => {
             };
         });
 
+        // Habilita filtros automaticos en el encabezado
         worksheet.autoFilter = { from: 'A1', to: 'O1' };
 
+        // Ajuste dinamico del ancho de las columnas según su contenido
         worksheet.columns.forEach((column) => {
             let maxLen = 0;
             column.eachCell({ includeEmpty: true }, (cell) => {
@@ -131,15 +144,16 @@ exports.descargarExcel = async (req, res) => {
         worksheet.views = [{ state: 'frozen', ySplit: 1 }]; 
         worksheet.showGridLines = true; 
 
+        // Configuracion de cabeceras HTTP para la descarga del archivo
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename=Reporte_SIMCARDS_CENS.xlsx');
 
+        // Transmisión del archivo al cliente
         await workbook.xlsx.write(res);
         res.status(200).end();
 
     } catch (error) {
         console.error("Error al generar Excel:", error);
-        // Previene caídas si la respuesta ya había iniciado sus headers
         if (!res.headersSent) {
             res.status(500).json({ message: "Error interno al generar el reporte" });
         }

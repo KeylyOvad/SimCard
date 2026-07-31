@@ -52,12 +52,12 @@ const createUbicacion = async (req, res) => {
   }
 };
 
-// Actualiza una ubicacion existente usando su ID
+// Actualiza una ubicacion existente usando su id
 const updateUbicacion = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    // Validacion estricta de ID entero positivo
+    // Validacion estricta de id entero positivo
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ message: 'ID inválido' });
     }
@@ -102,7 +102,7 @@ const updateUbicacion = async (req, res) => {
   }
 };
 
-// Elimina una ubicacion usando su ID 
+// Elimina una ubicacion usando su id
 const deleteUbicacion = async (req, res) => {
   try {
     const id = Number(req.params.id);

@@ -12,7 +12,7 @@ const getUsers = async (req, res) => {
     }
 };
 
-// Crea un nuevo usuario encriptando su contrasena
+// Crea un nuevo usuario encriptando su contraseña
 const createUser = async (req, res) => {
     try {
         const { nombres, apellidos, correo, contrasena, estado, id_rol } = req.body;
@@ -22,7 +22,7 @@ const createUser = async (req, res) => {
             return res.status(400).json({ message: 'Faltan datos obligatorios' });
         }
 
-        // 🔍 VALIDACIÓN DE DUPLICADOS MANUAL (Ignorando Mayúsculas/Minúsculas usando tu repositorio)
+        // Valida duplicados ignorando mayúsculas y minúsculas
         const usuarioExistente = await userRepository.findByCorreo(correo);
         if (usuarioExistente) {
             return res.status(400).json({ 
@@ -30,9 +30,11 @@ const createUser = async (req, res) => {
             });
         }
 
-        // Hashea la contrasena y mapea el estado a valor numerico
+        // Hashea la contraseña
         const hashedPassword = await bcrypt.hash(contrasena, 10);
-        const estadoNumero = estado === 'Activo' ? 1 : 0;
+
+        // Acepta tanto 1, '1', 'Activo', o true como Activo
+        const estadoNumero = (estado === 1 || estado === '1' || estado === 'Activo' || estado === true) ? 1 : 0;
 
         const nuevoUsuario = await userRepository.createUser({
             nombres,
@@ -47,7 +49,6 @@ const createUser = async (req, res) => {
     } catch (error) {
         console.error(error);
         
-        // Respaldo por si la base de datos bloquea algún otro duplicado no controlado
         if (error.code === 'ER_DUP_ENTRY' || error.message.includes('Duplicate entry') || error.message.includes('unique constraint')) {
             return res.status(400).json({ message: 'El usuario o correo electrónico ya se encuentra registrado.' });
         }
@@ -66,29 +67,29 @@ const updateUser = async (req, res) => {
             return res.status(400).json({ message: 'Nombres, apellidos y correo son obligatorios' });
         }
 
-        // 🔍 VALIDACIÓN DE DUPLICADOS AL EDITAR
+        // Validación de duplicados al editar
         const usuarioConEsteCorreo = await userRepository.findByCorreo(correo);
         
-        // Si el correo ya existe, pero pertenece a UN ID DIFERENTE al que estamos editando... bloqueamos el paso.
         if (usuarioConEsteCorreo && String(usuarioConEsteCorreo.id_usuario) !== String(id)) {
             return res.status(400).json({ 
                 message: `No se puede actualizar. El correo [${correo}] ya está siendo usado por otro usuario.` 
             });
         }
 
-        // Evalua si se envio una nueva contrasena para volver a hashear
+        // Evalúa si se envió una nueva contraseña para volver a hashear
         let hashedPassword = null;
         if (contrasena && contrasena.trim() !== '') {
              hashedPassword = await bcrypt.hash(contrasena, 10);
         }
 
-        const estadoNumero = estado === 'Activo' ? 1 : 0;
+        // Normaliza el estado para la Base de Datos (acepta 1, '1', 'Activo', true)
+        const estadoNumero = (estado === 1 || estado === '1' || estado === 'Activo' || estado === true) ? 1 : 0;
 
         const actualizado = await userRepository.updateUser(id, {
             nombres,
             apellidos,
             correo,
-            contrasena: hashedPassword, // Si viene con texto se cambia, si es null tu repositorio usa el query sin password
+            contrasena: hashedPassword, 
             estado: estadoNumero,
             id_rol: id_rol ? Number(id_rol) : undefined 
         });

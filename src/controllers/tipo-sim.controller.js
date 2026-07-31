@@ -29,7 +29,7 @@ const createTipoSim = async (req, res) => {
       });
     }
 
-    // Valida si ya existe un tipo de sim con esa misma descripción
+    // Valida si ya existe un tipo de sim con esa misma descripcion
     const existente = await tipoSimRepository.findByDescripcion(descripcionNormalizada);
 
     if (existente) {
@@ -50,7 +50,7 @@ const createTipoSim = async (req, res) => {
   }
 };
 
-// Actualiza un tipo de sim existente usando su ID
+// Actualiza un tipo de sim existente usando su id
 const updateTipoSim = async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -99,7 +99,7 @@ const updateTipoSim = async (req, res) => {
   }
 };
 
-// Elimina un tipo de sim usando su ID 
+// Elimina un tipo de sim usando su id
 const deleteTipoSim = async (req, res) => {
   try {
     const id = Number(req.params.id);
