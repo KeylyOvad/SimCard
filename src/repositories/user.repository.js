@@ -161,7 +161,7 @@ const updateUser = async (id, usuario) => {
   return result.rowsAffected[0] > 0;
 };
 
-// Borrado lógico
+// Borrado logico
 const deleteUser = async (id) => {
   const pool = await poolPromise;
 

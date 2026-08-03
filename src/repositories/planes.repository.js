@@ -1,6 +1,6 @@
 const { poolPromise } = require('../config/db');
 
-// Busca un plan ignorando mayúsculas y minúsculas
+// Busca un plan ignorando maysculas y minusculas
 const findByDescripcion = async (descripcion) => {
   const pool = await poolPromise;
 
@@ -56,7 +56,7 @@ const createPlan = async (plan) => {
   };
 };
 
-// Actualiza la descripción
+// Actualiza la descripcion
 const updatePlan = async (id, plan) => {
   const pool = await poolPromise;
 
@@ -79,7 +79,7 @@ const updatePlan = async (id, plan) => {
   };
 };
 
-// Borrado lógico
+// Borrado logico
 const deletePlan = async (id) => {
   const pool = await poolPromise;
 
@@ -95,7 +95,7 @@ const deletePlan = async (id) => {
   return result.rowsAffected[0] > 0;
 };
 
-// Borrado físico
+// Borrado fisico
 const hardDeletePlan = async (id) => {
   const pool = await poolPromise;
 

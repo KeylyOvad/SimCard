@@ -1,6 +1,6 @@
 const { poolPromise } = require('../config/db');
 
-// Busca un responsable ignorando mayúsculas y minúsculas
+// Busca un responsable ignorando mayusculas y minusculas
 const findByDescripcion = async (descripcion) => {
   const pool = await poolPromise;
 
@@ -56,7 +56,7 @@ const createResponsable = async (resp) => {
   };
 };
 
-// Actualiza la descripción
+// Actualiza la descripcion
 const updateResponsable = async (id, resp) => {
   const pool = await poolPromise;
 
@@ -79,7 +79,7 @@ const updateResponsable = async (id, resp) => {
   };
 };
 
-// Borrado lógico
+// Borrado logico
 const deleteResponsable = async (id) => {
   const pool = await poolPromise;
 
@@ -95,7 +95,7 @@ const deleteResponsable = async (id) => {
   return result.rowsAffected[0] > 0;
 };
 
-// Borrado físico
+// Borrado fisico
 const hardDeleteResponsable = async (id) => {
   const pool = await poolPromise;
 

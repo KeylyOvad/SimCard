@@ -1,9 +1,9 @@
 const { sql, poolPromise } = require('../config/db');
 
-// Valida si el argumento es un arreglo válido con elementos
+
 const isValidArray = (arr) => Array.isArray(arr) && arr.length > 0;
 
-// Helper para convertir enteros o retornar NULL para la BD
+
 const toNullableInt = (val) => {
     const parsed = Number(val);
     return isNaN(parsed) || val === null || val === undefined ? null : parsed;
@@ -77,7 +77,7 @@ exports.getById = async (id) => {
     return sim;
 };
 
-// Busca un registro de tarjeta SIM activo por número de SIM
+// Busca un registro de tarjeta SIM activo por numero de SIM
 exports.buscarPorSim = async (num_sim) => {
     const pool = await poolPromise;
     const cleanNumSim = num_sim != null ? String(num_sim).trim() : '';
@@ -128,7 +128,7 @@ exports.crear = async (data) => {
     try {
         await transaction.begin();
 
-        // 1. Validar IPs duplicadas en una sola consulta
+        // Validar IPs duplicadas en una sola consulta
         if (ipsUnicas.length > 0) {
             const reqCheckIp = new sql.Request(transaction);
             const inParams = ipsUnicas.map((item, idx) => {
@@ -154,7 +154,7 @@ exports.crear = async (data) => {
         const pinClean = pin != null && String(pin).trim() !== '' ? String(pin).trim() : '0000';
         const pukClean = puk != null && String(puk).trim() !== '' ? String(puk).trim() : '00000000';
 
-        // 2. Insertar SIM principal
+        // Insertar SIM principal (Se usa GETUTCDATE)
         const requestSim = new sql.Request(transaction);
         const insertSim = await requestSim
             .input('num_sim', sql.VarChar, numSimClean)
@@ -181,7 +181,7 @@ exports.crear = async (data) => {
                     @num_sim, @num_linea, @cod_pin, @cod_puk, @id_tiposim,
                     @id_operador, @id_estado, @id_plan, @id_capacidad,
                     @id_responsable, @id_destino, @id_ubicacion,
-                    @observacion, @id_user, GETDATE()
+                    @observacion, @id_user, GETUTCDATE()
                 );
                 SELECT SCOPE_IDENTITY() AS insertId;
             `);
@@ -190,7 +190,7 @@ exports.crear = async (data) => {
         const ipsTexto = ipsUnicas.length > 0 ? ipsUnicas.join(', ') : 'SIN IP';
         const apnsTexto = apnsProcesados.length > 0 ? apnsProcesados.join(', ') : 'SIN APN';
 
-        // 3. Insertar Historial de Modificación
+        // Insertar Historial de Modificacion (Se usa GETUTCDATE)
         const requestModif = new sql.Request(transaction);
         await requestModif
             .input('id_sim', sql.Int, simId)
@@ -218,7 +218,7 @@ exports.crear = async (data) => {
                     id_plan, id_capacidad, id_responsable,
                     id_destino, id_ubicacion, ips, apns, observacion
                 ) VALUES (
-                    @id_sim, 'REGISTRO INICIAL DEL ÍTEM', @id_user, GETDATE(),
+                    @id_sim, 'REGISTRO INICIAL DEL ÍTEM', @id_user, GETUTCDATE(),
                     @num_sim, @num_linea, @cod_pin, @cod_puk,
                     @id_tiposim, @id_operador, @id_estado,
                     @id_plan, @id_capacidad, @id_responsable,
@@ -226,7 +226,7 @@ exports.crear = async (data) => {
                 )
             `);
 
-        // 4. Insertar IPs masivamente
+        // Insertar IPs masivamente
         if (ipsUnicas.length > 0) {
             const reqIp = new sql.Request(transaction);
             reqIp.input('id_sim', sql.Int, simId);
@@ -240,7 +240,7 @@ exports.crear = async (data) => {
             }
         }
 
-        // 5. Insertar APNs masivamente
+        // Insertar APNs masivamente
         if (apnsProcesados.length > 0) {
             const reqApn = new sql.Request(transaction);
             reqApn.input('id_sim', sql.Int, simId);
@@ -302,7 +302,7 @@ exports.actualizar = async (id, data) => {
     try {
         await transaction.begin();
 
-        // 0. Validar existencia con bloqueo UPDLOCK
+        // Validar existencia con bloqueo UPDLOCK
         const reqCheck = new sql.Request(transaction);
         const checkSim = await reqCheck
             .input('id_sim', sql.Int, simIdNum)
@@ -310,7 +310,7 @@ exports.actualizar = async (id, data) => {
             
         if (checkSim.recordset.length === 0) throw new Error("SIM no encontrada");
 
-        // 1. Verificación de IPs en un solo query
+        // Verificación de IPs en un solo query
         if (ipsUnicas.length > 0) {
             const reqCheckIp = new sql.Request(transaction);
             reqCheckIp.input('id_sim', sql.Int, simIdNum);
@@ -337,7 +337,7 @@ exports.actualizar = async (id, data) => {
         const pinClean = pin != null && String(pin).trim() !== '' ? String(pin).trim() : '0000';
         const pukClean = puk != null && String(puk).trim() !== '' ? String(puk).trim() : '00000000';
 
-        // 2. Update principal
+        // Update principal (Se usa GETUTCDATE)
         const reqUpdate = new sql.Request(transaction);
         await reqUpdate
             .input('num_sim', sql.VarChar, numSimClean)
@@ -359,14 +359,14 @@ exports.actualizar = async (id, data) => {
                     num_sim = @num_sim, num_linea = @num_linea, cod_pin = @cod_pin, cod_puk = @cod_puk,
                     id_tiposim = @id_tiposim, id_operador = @id_operador, id_estado = @id_estado, id_plan = @id_plan,
                     id_capacidad = @id_capacidad, id_responsable = @id_responsable, id_destino = @id_destino,
-                    id_ubicacion = @id_ubicacion, observacion = @observacion, updated_at = GETDATE()
+                    id_ubicacion = @id_ubicacion, observacion = @observacion, updated_at = GETUTCDATE()
                 WHERE id_sim = @id_sim
             `);
 
         const ipsTexto = ipsUnicas.length > 0 ? ipsUnicas.join(', ') : 'SIN IP';
         const apnsTexto = apnsProcesados.length > 0 ? apnsProcesados.join(', ') : 'SIN APN';
 
-        // 3. Auditoría de Modificación
+        // Modificacion (Se usa GETUTCDATE)
         const reqMod = new sql.Request(transaction);
         await reqMod
             .input('id_sim', sql.Int, simIdNum)
@@ -395,7 +395,7 @@ exports.actualizar = async (id, data) => {
                     id_plan, id_capacidad, id_responsable,
                     id_destino, id_ubicacion, ips, apns, observacion
                 ) VALUES (
-                    @id_sim, @razon, @id_user, GETDATE(),
+                    @id_sim, @razon, @id_user, GETUTCDATE(),
                     @num_sim, @num_linea, @cod_pin, @cod_puk,
                     @id_tiposim, @id_operador, @id_estado,
                     @id_plan, @id_capacidad, @id_responsable,
@@ -403,7 +403,7 @@ exports.actualizar = async (id, data) => {
                 )
             `);
 
-        // 4. Reescritura masiva de IPs y APNs
+        // Reescritura masiva de IPs y APNs
         const reqDel = new sql.Request(transaction);
         await reqDel.input('id_sim', sql.Int, simIdNum).query('DELETE FROM ip WHERE id_sim = @id_sim; DELETE FROM apn WHERE id_sim = @id_sim;');
 
@@ -442,7 +442,7 @@ exports.actualizar = async (id, data) => {
     }
 };
 
-// Borrado lógico con registro de auditoría
+// Borrado logico (Se usa GETUTCDATE)
 exports.eliminar = async (id, id_user = null, razon = 'ELIMINACIÓN DE REGISTRO') => {
     const pool = await poolPromise;
     const simId = Number(id);
@@ -452,7 +452,7 @@ exports.eliminar = async (id, id_user = null, razon = 'ELIMINACIÓN DE REGISTRO'
     try {
         await transaction.begin();
 
-        // Obtener estado actual para snapshot de auditoría
+        // Obtener estado actual
         const reqCurrent = new sql.Request(transaction);
         const simCurrent = await reqCurrent.input('id_sim', sql.Int, simId)
             .query('SELECT * FROM sim WITH (UPDLOCK, HOLDLOCK) WHERE id_sim = @id_sim AND deleted_at IS NULL');
@@ -464,13 +464,13 @@ exports.eliminar = async (id, id_user = null, razon = 'ELIMINACIÓN DE REGISTRO'
 
         const simData = simCurrent.recordset[0];
 
-        // 1. Marcar como eliminada y cambiar estado a 'desactivada'
+        // Marcar como eliminada y cambiar estado a 'desactivada' (GETUTCDATE)
         const reqUpdate = new sql.Request(transaction);
         const result = await reqUpdate
             .input('id_sim', sql.Int, simId)
             .query(`
                 UPDATE sim
-                SET deleted_at = GETDATE(),
+                SET deleted_at = GETUTCDATE(),
                     id_estado = (
                         SELECT TOP 1 id_estado
                         FROM estados
@@ -479,7 +479,7 @@ exports.eliminar = async (id, id_user = null, razon = 'ELIMINACIÓN DE REGISTRO'
                 WHERE id_sim = @id_sim
             `);
 
-        // 2. Registrar la auditoría de la eliminación
+        // Registrar la eliminación (GETUTCDATE)
         if (id_user) {
             const reqAudit = new sql.Request(transaction);
             await reqAudit
@@ -507,7 +507,7 @@ exports.eliminar = async (id, id_user = null, razon = 'ELIMINACIÓN DE REGISTRO'
                         id_plan, id_capacidad, id_responsable,
                         id_destino, id_ubicacion, observacion
                     ) VALUES (
-                        @id_sim, @razon, @id_user, GETDATE(),
+                        @id_sim, @razon, @id_user, GETUTCDATE(),
                         @num_sim, @num_linea, @cod_pin, @cod_puk,
                         @id_tiposim, @id_operador, @id_estado,
                         @id_plan, @id_capacidad, @id_responsable,
@@ -561,7 +561,7 @@ exports.getHistorial = async (id) => {
     return result.recordset;
 };
 
-// Búsqueda masiva
+// Busqueda masiva
 exports.buscarSimsMasivo = async (listaNums) => {
     if (!Array.isArray(listaNums) || !listaNums.length) return [];
     
@@ -622,7 +622,7 @@ exports.validarIpDuplicadaActualizar = async (ip, id_sim) => {
     return result.recordset.length > 0 ? result.recordset[0] : null;
 };
 
-// Valida duplicidad de SIM o Línea al crear
+// Valida duplicidad de SIM o Linea al crear
 exports.validarSimOLineaDuplicadaCrear = async (num_sim, num_linea) => {
     const pool = await poolPromise;
     const cleanNumSim = num_sim != null ? String(num_sim).trim() : '';
@@ -640,7 +640,7 @@ exports.validarSimOLineaDuplicadaCrear = async (num_sim, num_linea) => {
     return result.recordset.length > 0 ? result.recordset[0] : null;
 };
 
-// Valida duplicidad de SIM o Línea en otras tarjetas al actualizar
+// Valida duplicidad de SIM o Linea en otras tarjetas al actualizar
 exports.validarSimOLineaDuplicadaActualizar = async (num_sim, num_linea, id_sim) => {
     const pool = await poolPromise;
     const cleanNumSim = num_sim != null ? String(num_sim).trim() : '';

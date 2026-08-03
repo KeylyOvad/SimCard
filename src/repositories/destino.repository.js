@@ -1,6 +1,6 @@
 const { poolPromise } = require('../config/db');
 
-// Busca un destino por su descripción ignorando mayúsculas y minúsculas
+// Busca un destino por su descripción ignorando mayusculas y minusculas
 const findByDescripcion = async (descripcion) => {
   const pool = await poolPromise;
 
@@ -56,7 +56,7 @@ const createDestino = async (dest) => {
   };
 };
 
-// Actualiza la descripción
+// Actualiza la descripcion
 const updateDestino = async (id, dest) => {
   const pool = await poolPromise;
 
@@ -79,7 +79,7 @@ const updateDestino = async (id, dest) => {
   };
 };
 
-// Borrado lógico
+// Borrado logico
 const deleteDestino = async (id) => {
   const pool = await poolPromise;
 
@@ -95,7 +95,7 @@ const deleteDestino = async (id) => {
   return result.rowsAffected[0] > 0;
 };
 
-// Borrado físico
+// Borrado fisico
 const hardDeleteDestino = async (id) => {
   const pool = await poolPromise;
 
